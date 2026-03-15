@@ -43,10 +43,6 @@ public class Font {
       }
     }
   }
-
-  public boolean hasSprite(String id) {
-    return map.containsKey(id);
-  }
   
   public Sprite getSprite(String id) {
     return map.get(id);

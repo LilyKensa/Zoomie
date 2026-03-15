@@ -173,7 +173,7 @@ public class Vec {
   }
   
   public boolean inRange(Vec that, double radius) {
-    return distSq(that) <= radius;
+    return distSq(that) <= radius * radius;
   }
   
   public boolean inRange(double radius) {

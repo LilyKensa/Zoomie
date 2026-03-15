@@ -17,18 +17,19 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 public class Game implements Lifecycle {
-  
+
   static public Game instance;
-  
+
   public Game() {
     instance = this;
   }
-  
+
   Font font = Font.builder()
     .source("font")
     .gridWidth(8).gridHeight(8)
     .charWidth(7).charHeight(5)
     .spaceWidth(4).spaceHeight(6)
+    .rows(16).columns(15)
     .chars(List.of(
       "▮", "■", "□", "⁙", "⁘", "‖", "◀", "▶", "「", "」", "¥", "•", "、", "。", "゛", "゜",
       " ", "!", "\"", "#", "$", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/",
@@ -47,12 +48,12 @@ public class Game implements Lifecycle {
       "ユ", "ヨ", "ラ", "リ", "ル", "レ", "ロ", "ワ", "ヲ", "ン", "ッ", "ャ", "ュ", "ョ", "◜", "◝"
     ))
     .build();
-  
+
   Sprite sheet = Sprite.load("spritesheet");
 
   TileMap gameTiles = new TileMap();
   TileMap titleTiles = new TileMap();
-  
+
   enum SpriteID {
     PL_RUN_0,
     PL_RUN_1,
@@ -82,8 +83,8 @@ public class Game implements Lifecycle {
     WEAPON_MINI_GUN,
     WEAPON_SHOT_GUN,
     WEAPON_DISC_GUN,
-    WEAPON_KATANA_0,
-    WEAPON_KATANA_1,
+    WEAPON_KATANA,
+    WEAPON_KATANA_ATTACKING,
     WEAPON_BAZOOKA,
     WEAPON_GRENADE_LAUNCHER,
     WEAPON_MINES,
@@ -95,9 +96,9 @@ public class Game implements Lifecycle {
     BULLET_SHELL,
     BULLET_GRENADE
   }
-  
-  EnumMap<SpriteID, Sprite> spriteCache = new EnumMap<>(SpriteID.class);
-  
+
+  static EnumMap<SpriteID, Sprite> spriteCache = new EnumMap<>(SpriteID.class);
+
   List<SpriteID> runAnimation = List.of(
     SpriteID.PL_RUN_0,
     SpriteID.PL_RUN_1,
@@ -130,7 +131,7 @@ public class Game implements Lifecycle {
     SpriteID.DISC_2,
     SpriteID.DISC_3
   );
-  
+
   @Override
   public void start() {
     for (int i = 0; i < 5; ++i) {
@@ -145,7 +146,7 @@ public class Game implements Lifecycle {
         sheet.slice(Vec.ofInt(i * 16, 16), 16, 16)
       );
     }
-    
+
     for (int i = 0; i < 4; ++i) {
       spriteCache.put(
         SpriteID.valueOf("DISC_BIG_" + i),
@@ -154,17 +155,17 @@ public class Game implements Lifecycle {
     }
     for (int i = 0; i < 4; ++i) {
       spriteCache.put(
-        SpriteID.valueOf("DISC_SEEK_" + i),
+        SpriteID.valueOf("DISC_" + i),
         sheet.slice(Vec.ofInt(64 + i * 16, 80), 16, 16)
       );
     }
     for (int i = 0; i < 4; ++i) {
       spriteCache.put(
-        SpriteID.valueOf("DISC_" + i),
+        SpriteID.valueOf("DISC_SEEK_" + i),
         sheet.slice(Vec.ofInt(i * 16, 80), 16, 16)
       );
     }
-    
+
     spriteCache.put(
       SpriteID.WEAPON_PISTOL,
       sheet.slice(Vec.ofInt(0, 64), 8, 8)
@@ -190,16 +191,20 @@ public class Game implements Lifecycle {
       sheet.slice(Vec.ofInt(80, 72), 16, 8)
     );
     spriteCache.put(
-      SpriteID.WEAPON_KATANA_0,
-      sheet.slice(Vec.ofInt(56, 96), 16, 8)
+      SpriteID.WEAPON_KATANA,
+      sheet.slice(Vec.ofInt(48, 96), 8, 16)
     );
     spriteCache.put(
-      SpriteID.WEAPON_KATANA_1,
-      sheet.slice(Vec.ofInt(48, 96), 8, 16)
+      SpriteID.WEAPON_KATANA_ATTACKING,
+      sheet.slice(Vec.ofInt(56, 96), 16, 8)
     );
     spriteCache.put(
       SpriteID.WEAPON_BAZOOKA,
       sheet.slice(Vec.ofInt(16, 72), 16, 8)
+    );
+    spriteCache.put(
+      SpriteID.WEAPON_GRENADE_LAUNCHER,
+      sheet.slice(Vec.ofInt(112, 72), 16, 8)
     );
     spriteCache.put(
       SpriteID.WEAPON_MINES,
@@ -236,10 +241,10 @@ public class Game implements Lifecycle {
     );
 
     Graphics.font(font);
-    
+
     initSplashScreen();
   }
-  
+
   static Color[] palette = {
     Color.web("#000000ff"), Color.web("#422136ff"),
     Color.web("#7e2553ff"), Color.web("#742f29ff"),
@@ -250,117 +255,120 @@ public class Game implements Lifecycle {
     Color.web("#29adffff"), Color.web("#83768cff"),
     Color.web("#ff77a8ff"), Color.web("#ffccaaff")
   };
-  
+
   int lastHighScore = 0;
-  
+
   enum GameState {
     SPLASH,
     TITLE,
     GAME;
   }
-  
+
   GameState state = GameState.SPLASH;
-  
+
   double time() {
     return Entry.instance.time() / 1000_000_000d;
   }
-  
+
   static class ButtonsManager {
-    
+
     public boolean up() {
       return Inputs.key(KeyCode.UP) || Inputs.key(KeyCode.I);
     }
-    
+
     public boolean upOnce()  {
       return Inputs.keyOnce(KeyCode.UP) || Inputs.keyOnce(KeyCode.I);
     }
-    
+
     public boolean down()  {
       return Inputs.key(KeyCode.DOWN) || Inputs.key(KeyCode.K);
     }
-    
+
     public boolean downOnce()  {
       return Inputs.keyOnce(KeyCode.DOWN) || Inputs.keyOnce(KeyCode.K);
     }
-    
+
     public boolean left()  {
       return Inputs.key(KeyCode.LEFT) || Inputs.key(KeyCode.J);
     }
-    
+
     public boolean leftOnce()  {
       return Inputs.keyOnce(KeyCode.LEFT) || Inputs.keyOnce(KeyCode.J);
     }
-    
+
     public boolean right()  {
       return Inputs.key(KeyCode.RIGHT) || Inputs.key(KeyCode.L);
     }
-    
+
     public boolean rightOnce()  {
       return Inputs.keyOnce(KeyCode.RIGHT) || Inputs.keyOnce(KeyCode.L);
     }
-    
+
     public boolean o()  {
       return Inputs.key(KeyCode.C) || Inputs.key(KeyCode.S);
     }
-    
+
     public boolean oOnce()  {
       return Inputs.keyOnce(KeyCode.C) || Inputs.keyOnce(KeyCode.S);
     }
-    
+
     public boolean x()  {
       return Inputs.key(KeyCode.X) || Inputs.key(KeyCode.D);
     }
-    
+
     public boolean xOnce()  {
       return Inputs.keyOnce(KeyCode.X) || Inputs.keyOnce(KeyCode.D);
     }
   }
-  
+
   ButtonsManager buttons = new ButtonsManager();
-  
+
   static boolean alwaysPlusWeapon = false;
   static boolean alwaysPlusDisc = false;
-  
+
   String version = "0.8";
-  
+
   Vec camera = Vec.zero();
-  
+
   static class Player {
     Vec pos = Vec.of(64, 64);
     Vec vel = Vec.zero();
-    
+
     Sprite spr;
   }
-  
+
   static Player pl = new Player();
-  
+
   Vec input = Vec.zero();
-  
+
   @Builder
   static class Disc {
     @Builder.Default
     final boolean plus = false;
     final int radius;
     final boolean seek;
-    
+
     Vec pos;
     @Builder.Default
     Vec vel = Vec.zero();
-    
+
     double health;
     @Builder.Default
     boolean blood = false;
-    
+
     @Builder.Default
     int hitCooldown = 0;
     int cooldown;
-    
+
     @Builder.Default
     int frame = (int) Math.floor(Math.random() * 8);
+
+    @Builder.Default
+    boolean removed = false;
   }
-  
+
   static List<Disc> discs = new ArrayList<>();
-  
+
   @Builder(buildMethodName = "internalBuild")
   static class Bullet implements Lifecycle {
 
@@ -381,8 +389,9 @@ public class Game implements Lifecycle {
     double drag;
 
     boolean track;
-    
-    Sprite sprite;
+
+    @Builder.Default
+    Sprite sprite = spriteCache.get(SpriteID.BULLET_YELLOW);
 
     @Builder.Default
     double smokeCooldown = 0;
@@ -451,48 +460,49 @@ public class Game implements Lifecycle {
     }
 
     Consumer<Bullet> tick, draw;
-    
+
     @Override
     public void start() {
 
     }
-    
+
     @Override
     public void update() {
       tick.accept(this);
     }
-    
+
     @Override
     public void render() {
       draw.accept(this);
     }
   }
-  
+
   List<Bullet> bullets = new ArrayList<>();
-  
+  List<Bullet> bulletsAdding = new ArrayList<>();
+
   double boxCooldown = 1;
   Vec weaponGrab = Vec.zero();
-  
+
   double frame = 0;
-  
+
   Vec box = Vec.of(
     Math.random() * 92 + 16,
     Math.random() * 32 + 16
   );
 
-  Sprite boxSprite = sheet.slice(Vec.ofInt(40, 8), 16, 16);
-  
+  Sprite boxSprite = sheet.slice(Vec.ofInt(40, 8), 8, 8);
+
   double spawnCooldown = 0;
   double laserCooldown = 0;
-  
+
   boolean dead = false;
   int deadCooldown = 0;
   int restartCooldown = 0;
-  
+
   boolean newHighScore = false;
   boolean showingBest = false;
   static int score = 0;
-  
+
   @Builder(buildMethodName = "internalBuild")
   static class Particle implements Lifecycle {
 
@@ -515,29 +525,29 @@ public class Game implements Lifecycle {
     boolean removed = false;
 
     Consumer<Particle> tick, draw;
-    
+
     @Override
     public void start() {
-    
+
     }
-    
+
     @Override
     public void update() {
       tick.accept(this);
     }
-    
+
     @Override
     public void render() {
       draw.accept(this);
     }
   }
-  
+
   static List<Particle> particles = new ArrayList<>();
-  
+
   double shake = 0;
-  
+
   static boolean flipX = false;
-  
+
   enum WeaponID {
     PISTOL,
     REVOLVER,
@@ -553,37 +563,38 @@ public class Game implements Lifecycle {
     FLAME_THROWER,
     LASER_RIFLE
   }
-  
+
   static boolean weaponPlusByChance() {
     double plusRand = Math.random();
     return alwaysPlusWeapon || (
       score >= 10 && ((
         score < 50 &&
-        plusRand < 0.05 + (score - 10) * 0.005
+          plusRand < 0.05 + (score - 10) * 0.005
       ) || plusRand < 0.25)
     );
   }
-  
+
   @Builder
   static class Weapon implements Lifecycle {
     final WeaponID id;
     final String name;
     Sprite sprite;
-    Vec.Int spriteOffset;
+    @Builder.Default
+    Vec.Int spriteOffset = Vec.zero().toInt();
     @Builder.Default
     final boolean plus = weaponPlusByChance();
     @Builder.Default
     final boolean autoFire = false;
     final int firePeriod;
-    
+
     @Builder.Default
     int cooldown = 0;
-    
+
     void baseDraw() {
       double drawX = pl.pos.x;
       double drawY = pl.pos.y - 4 + spriteOffset.y;
       if (flipX) {
-        drawX -= 4 + 8 + spriteOffset.x + 8 * (sprite.width - 1);
+        drawX -= 4 + 8 + spriteOffset.x + 8 * (sprite.width / 8d - 1);
       }
       else {
         drawX += 4 + spriteOffset.x;
@@ -595,22 +606,23 @@ public class Game implements Lifecycle {
       );
     }
 
-    final Consumer<Weapon> tick, draw, fire;
-    
+    @Builder.Default
+    final Consumer<Weapon> tick = _ -> {}, draw = _ -> {}, fire = _ -> {};
+
     @Override
     public void start() {}
-    
+
     @Override
     public void update() {
       tick.accept(this);
     }
-    
+
     @Override
     public void render() {
       draw.accept(this);
     }
   }
-  
+
   List<Supplier<Weapon>> weapons = List.of(
     this::getRevolver,
     this::getMachineGun,
@@ -627,53 +639,53 @@ public class Game implements Lifecycle {
   );
   Weapon currentWeapon = getPistol();
   double weaponCooldown = 0;
-  
+
   void restart() {
     Audios.emit(17);
-    
+
     pl.pos = Vec.of(64, 64);
     pl.vel = Vec.zero();
     pl.spr = spriteCache.get(SpriteID.PL_RUN_0);
-    
+
     input = Vec.zero();
-    
+
     discs.clear();
     bullets.clear();
-    
+
     // weapons = List.of(...);
     currentWeapon = getPistol();
-    
+
     weaponCooldown = 0;
     boxCooldown = 1;
     weaponGrab = Vec.zero();
-  
+
     frame = 0;
-    
+
     box = Vec.of(
       Math.random() * 92 + 16,
       Math.random() * 32 + 16
     );
-    
+
     spawnCooldown = 60;
     laserCooldown = 0;
-    
+
     boxParticles();
-    
+
     dead = false;
     deadCooldown = 0;
     restartCooldown = 0;
-    
+
     newHighScore = false;
     showingBest = false;
     score = 0;
-    
+
     particles.clear();
-    
+
     shake = 0;
-    
+
     flipX = false;
   }
-  
+
   @Override
   public void update() {
     switch (state) {
@@ -688,12 +700,12 @@ public class Game implements Lifecycle {
       }
     }
   }
-  
+
   void initGame() {
     Audios.music(13);
     restart();
   }
-  
+
   void addScore() {
     score++;
     if (score > lastHighScore) {
@@ -701,18 +713,18 @@ public class Game implements Lifecycle {
       lastHighScore = score;
     }
   }
-  
+
   void shake(double value) {
     shake = Math.max(shake, value);
   }
-  
+
   void updateGame() {
     if (Inputs.keyOnce(KeyCode.M)) alwaysPlusWeapon = !alwaysPlusWeapon;
     if (Inputs.keyOnce(KeyCode.N)) alwaysPlusDisc = !alwaysPlusDisc;
     if (Inputs.keyRepeat(KeyCode.B)) {
       addScore();
     }
-    
+
     if (dead) {
       deadCooldown--;
       if (deadCooldown < -120) {
@@ -720,7 +732,7 @@ public class Game implements Lifecycle {
         showingBest = !showingBest;
       }
       restartCooldown = Math.max(restartCooldown - 1, 0);
-      
+
       // restart input
       if (deadCooldown <= 0 && (buttons.oOnce() || buttons.xOnce())) {
         restart();
@@ -729,14 +741,14 @@ public class Game implements Lifecycle {
     }
     else {
       input = Vec.zero();
-      
+
       if (buttons.leftOnce()) {
         flipX = true;
       }
       if (buttons.rightOnce()) {
         flipX = false;
       }
-      
+
       if (buttons.left()) {
         input.x--;
       }
@@ -749,21 +761,21 @@ public class Game implements Lifecycle {
       if (buttons.down()) {
         input.y++;
       }
-      
+
       if (buttons.upOnce()) {
         Audios.emit(18);
       }
-      
+
       if (input.lenSq() > 0) {
         // chording
         input.x *= 0.7071;
         input.y *= 0.7071;
       }
-      
+
       // accelerate
       pl.vel = pl.vel.add(input);
       pl.vel.y += 0.25;
-      
+
       // cap speed
       if (input.len() == 0) {
         if (pl.vel.lenSq() <= 0.1 * 0.1) {
@@ -777,10 +789,10 @@ public class Game implements Lifecycle {
       if (pl.vel.lenSq() > 2 * 2) {
         pl.vel = pl.vel.resize(2);
       }
-      
+
       // step
       pl.pos = pl.pos.add(pl.vel);
-      
+
       // walls bounce
       if (pl.pos.x < 0) {
         pl.pos.x = 0;
@@ -798,7 +810,7 @@ public class Game implements Lifecycle {
         pl.pos.y = 128;
         pl.vel.y = -Math.abs(pl.vel.y);
       }
-      
+
       if (input.lenSq() > 1e-6) {
         // animate
         pl.spr = spriteCache.get(
@@ -809,7 +821,7 @@ public class Game implements Lifecycle {
           idleAnimation.get((int) Math.floor(frame / 4d) % idleAnimation.size())
         );
       }
-      
+
       // smoke
       if (input.y < 0) {
         Particle spark = oldSpark(
@@ -822,14 +834,14 @@ public class Game implements Lifecycle {
         } else {
           spark.pos.x -= 5;
         }
-        
+
         particles.add(spark);
       }
-      
+
       // laser autoFire
       if (laserCooldown > 0) {
         laserCooldown--;
-        
+
         if (laserCooldown <= 0) {
           // fire!
           double xStart = pl.pos.x, xEnd = 0;
@@ -845,11 +857,11 @@ public class Game implements Lifecycle {
         }
       }
     }
-    
+
     // particle update && finish
     particles.forEach(Particle::update);
     particles.removeIf(p -> p.removed);
-    
+
     // check for box hit
     weaponCooldown = Math.max(weaponCooldown - 0.015, 0);
     boxCooldown = Math.max(boxCooldown - 0.05, 0);
@@ -862,7 +874,7 @@ public class Game implements Lifecycle {
       );
       boxParticles(); // entry particles
       addScore();
-      
+
       // new weapon!
       List<Weapon> options = new ArrayList<>();
       for (Supplier<Weapon> supplier : weapons) {
@@ -881,7 +893,9 @@ public class Game implements Lifecycle {
       weaponCooldown = 1;
       boxCooldown = 1;
     }
-    
+
+    discs.removeIf(d -> d.removed);
+
     // move discs
     for (Disc d : discs) {
       // cool down || move
@@ -897,7 +911,7 @@ public class Game implements Lifecycle {
           if (!d.pos.inRange(pl.pos, 5)) {
             Vec sd = pl.pos.minus(d.pos);
             double sdlen = sd.len();
-            d.vel = d.vel.multiply((d.plus ? 0.08 : 0.01) / sdlen);
+            d.vel = d.vel.add(sd.multiply((d.plus ? 0.08 : 0.01) / sdlen));
           }
         }
         d.pos = d.pos.add(d.vel);
@@ -948,7 +962,7 @@ public class Game implements Lifecycle {
       // spin regardless of movement
       d.frame = (d.frame + 1) % 8;
     }
-    
+
     // spawn discs
     if (!dead) {
       spawnCooldown--;
@@ -958,7 +972,7 @@ public class Game implements Lifecycle {
             Math.random() * 128,
             Math.random() * 128
           );
-          
+
           double plusRand = Math.random();
           boolean plus = alwaysPlusDisc || (
             score >= 10 && (
@@ -966,13 +980,13 @@ public class Game implements Lifecycle {
                 || plusRand < 0.25
             )
           );
-          
+
           if (Math.random() < 0.5) {
             // three discs
             double angle = Math.random() * 2 * Math.PI, speed = 1.5;
             makeDisc(7, 20, false, 60, spawn, Vec.ofPolar(angle, speed), plus);
-            makeDisc(7, 20, false, 75, spawn, Vec.ofPolar(angle, speed), plus);
-            makeDisc(7, 20, false, 90, spawn, Vec.ofPolar(angle, speed), plus);
+            makeDisc(7, 20, false, 60 + 15 * (plus ? 2 : 1), spawn, Vec.ofPolar(angle, speed), plus);
+            makeDisc(7, 20, false, 60 + 15 * (plus ? 4 : 2), spawn, Vec.ofPolar(angle, speed), plus);
           }
           else {
             if (Math.random() < 0.5) {
@@ -985,13 +999,13 @@ public class Game implements Lifecycle {
             }
           }
         }
-        
+
         spawnCooldown = 180 / (1 + Math.sqrt(score) * 0.1);
       }
-      
+
       frame++;
     }
-    
+
     // fire weapon
     if (currentWeapon.cooldown > 0) {
       // cooldown, don"t fire
@@ -1007,35 +1021,38 @@ public class Game implements Lifecycle {
         else {
           fire = buttons.xOnce() || buttons.oOnce();
         }
-        
+
         if (fire) {
           currentWeapon.fire.accept(currentWeapon);
           currentWeapon.cooldown = currentWeapon.firePeriod;
         }
       }
     }
-    
+
     if (!dead) {
       currentWeapon.update();
     }
-    
+
     // move bullets
     for (Bullet b : bullets) {
       b.update();
     }
     bullets.removeIf(b -> b.removed);
-    
+
+    bullets.addAll(bulletsAdding);
+    bulletsAdding.clear();
+
     // camera motion
     camera = camera.multiply(0.9)
       .add(pl.pos.minus(Vec.of(64, 64)).multiply(0.0375));
-    
+
     if (shake > 0) {
       double angle = Math.random() * 2 * Math.PI;
       camera = camera.add(Vec.ofPolar(angle, shake / 2));
       shake--;
     }
   }
-  
+
   void makeDisc(int radius, int health, boolean seek, int cooldown, Vec pos, Vec vel, boolean plus) {
     Disc disc = Disc.builder()
       .pos(pos)
@@ -1048,7 +1065,7 @@ public class Game implements Lifecycle {
       .build();
     discs.add(disc);
   }
-  
+
   @Override
   public void render() {
     switch (state) {
@@ -1063,11 +1080,11 @@ public class Game implements Lifecycle {
       }
     }
   }
-  
+
   void drawGame() {
     Graphics.clear(palette[12]);
     Graphics.camera(camera);
-    
+
     // background tiles
     Graphics.tiles(
       gameTiles,
@@ -1075,16 +1092,16 @@ public class Game implements Lifecycle {
       32, 32,
       Set.of(1)
     );
-    
+
     // box strings
     Graphics.line(box.add(-3, 0), Vec.of(box.x - 3, 0), palette[12]);
     Graphics.line(box.add(-2, 0), Vec.of(box.x - 2, 0), palette[13]);
     Graphics.line(box.add(-1, 0), Vec.of(box.x - 1, 0), palette[12]);
-    
+
     Graphics.line(box.add(0, 0), Vec.of(box.x + 0, 0), palette[12]);
     Graphics.line(box.add(1, 0), Vec.of(box.x + 1, 0), palette[13]);
     Graphics.line(box.add(2, 0), Vec.of(box.x + 2, 0), palette[12]);
-    
+
     // background discs
     for (Disc d : discs) {
       if (d.cooldown > 0) {
@@ -1100,7 +1117,7 @@ public class Game implements Lifecycle {
       }
     }
     drawDiscs(true);
-    
+
     // foreground tiles
     Graphics.tiles(
       gameTiles,
@@ -1108,12 +1125,12 @@ public class Game implements Lifecycle {
       32, 32,
       Set.of(2)
     );
-    
+
     // player
     if (!dead) {
       // body
       Graphics.sprite(pl.spr, pl.pos.minus(8, 8), flipX);
-      
+
       // weapon
       if (currentWeapon.plus && frame % 12 < 5) {
         Graphics.map(palette[7], palette[15]);
@@ -1121,20 +1138,20 @@ public class Game implements Lifecycle {
         Graphics.map(palette[5], palette[11]);
         Graphics.map(palette[0], palette[3]);
       }
-      
+
       currentWeapon.draw.accept(currentWeapon);
-      
+
       Graphics.map(palette[7], palette[7]);
       Graphics.map(palette[6], palette[6]);
       Graphics.map(palette[5], palette[5]);
       Graphics.map(palette[0], palette[0]);
     } else {
-      Graphics.circle(pl.pos, 10, palette[2]);
+      Graphics.fillCircle(pl.pos, 10, palette[2]);
     }
-    
+
     // foreground discs
     drawDiscs(false);
-    
+
     // box
     Graphics.sprite(
       boxSprite,
@@ -1143,17 +1160,17 @@ public class Game implements Lifecycle {
         box.y - 4 + boxCooldown * Math.sin(boxCooldown * -2 * Math.PI) * -8
       )
     );
-    
+
     // bullets
     for (Bullet b : bullets) {
       b.render();
     }
-    
+
     // particles
     for (Particle p : particles) {
       p.render();
     }
-    
+
     // hud
     if (weaponCooldown > 0) {
       double lift = ((1 - weaponCooldown) * 0.0 + 1.0 * (1 - weaponCooldown) * (1 - weaponCooldown)) * -128;
@@ -1166,16 +1183,16 @@ public class Game implements Lifecycle {
         palette[(currentWeapon.plus && frame % 12 < 4) ? 4 : 7]
       );
     }
-    
+
     Graphics.camera();
-    
+
     if (!dead) {
       scorePrint(score, Vec.of(64, 2), 2, newHighScore, true);
     }
     else {
       // background
-      Graphics.rect(Vec.of(0, 32), Vec.of(128, 98), palette[1]);
-      
+      Graphics.fillRect(Vec.of(0, 32), Vec.of(128, 98), palette[1]);
+
       // game over
       double write = Math.min(60 - deadCooldown, 30) * 2;
       Graphics.map(palette[7], palette[0]);
@@ -1190,7 +1207,7 @@ public class Game implements Lifecycle {
         Vec.of(64 - write, 32 + 8),
         write * 2, 10
       );
-      
+
       // boxEnds:/best:
       int[] box = new int[]{33, 116, 37, 5};
       int num = score;
@@ -1224,7 +1241,7 @@ public class Game implements Lifecycle {
         box[2] * 2, 10
       );
       scorePrint(num, Vec.of(64 - write * 0.5 + box[2] * 2 + 22, y), 2, exclaim, false);
-      Graphics.rect(
+      Graphics.fillRect(
         Vec.of(64 + write * 0.5, y),
         Vec.of(y + 128, y + 12),
         palette[1]
@@ -1237,10 +1254,10 @@ public class Game implements Lifecycle {
         message = "ONLY " + (lastHighScore - score + 1) + " TO NEW HIGHSCORE!";
       }
       shadowPrintCentered(message, Vec.of(64, 32 + 12 + 20 + 12), palette[7]);
-      shadowPrintCentered("PRESS 🅾️ OR ❎ TO RESTART", Vec.of(64 - 4, 32 + 12 + 20 + 12 + 8), palette[7]);
+      shadowPrintCentered("PRESS 🅾️  OR ❎  TO RESTART", Vec.of(64 + 4, 32 + 12 + 20 + 12 + 8), palette[7]);
     }
   }
-  
+
   void drawDiscs(boolean background) {
     for (Disc d : discs) {
       if ((d.cooldown > 0 && background) || (d.cooldown <= 0 && !background)) {
@@ -1292,7 +1309,7 @@ public class Game implements Lifecycle {
       }
     }
   }
-  
+
   void prettyPrint(String str, Vec v, Color color) {
     Graphics.print(str, v.add(-1, -1), palette[0]);
     Graphics.print(str, v.add(+0, -1), palette[0]);
@@ -1304,27 +1321,27 @@ public class Game implements Lifecycle {
     Graphics.print(str, v.add(+1, +1), palette[0]);
     Graphics.print(str, v, color);
   }
-  
+
   void shadowPrint(String str, Vec v, Color color) {
     Graphics.print(str, v.add(0, 1), palette[0]);
     Graphics.print(str, v, color);
   }
-  
+
   void shadowPrintCentered(String str, Vec v, Color color) {
     shadowPrint(str, v.add(str.length() * -2, 0), color);
   }
-  
+
   void scorePrint(int num, Vec v, double scale, boolean exclaim, boolean center) {
     String chars = String.valueOf(num);
     if (exclaim) {
       chars += "!";
     }
-    
+
     for (int i = 0; i < chars.length(); ++i) {
       char ch = chars.charAt(i);
       int sx = (
-        ch == '!' 
-          ? 10 
+        ch == '!'
+          ? 10
           : ch - '0'
       ) * 4 + 1;
       double startX = v.x + 7 * (i - 1) * scale;
@@ -1345,7 +1362,7 @@ public class Game implements Lifecycle {
       );
     }
   }
-  
+
   void knockback(double dx) {
     if (flipX) {
       pl.vel.x += dx;
@@ -1354,10 +1371,10 @@ public class Game implements Lifecycle {
       pl.vel.x -= dx;
     }
   }
-  
+
   Weapon getPistol() {
     boolean plus = weaponPlusByChance();
-    
+
     return Weapon.builder()
       .plus(plus)
       .id(WeaponID.PISTOL)
@@ -1380,10 +1397,10 @@ public class Game implements Lifecycle {
       })
       .build();
   }
-  
+
   Weapon getRevolver() {
     boolean plus = weaponPlusByChance();
-    
+
     return Weapon.builder()
       .plus(plus)
       .id(WeaponID.REVOLVER)
@@ -1408,10 +1425,10 @@ public class Game implements Lifecycle {
       })
       .build();
   }
-  
+
   Weapon getMachineGun() {
     boolean plus = weaponPlusByChance();
-    
+
     return Weapon.builder()
       .plus(plus)
       .id(WeaponID.MACHINE_GUN)
@@ -1437,10 +1454,10 @@ public class Game implements Lifecycle {
       })
       .build();
   }
-  
+
   Weapon getMiniGun() {
     boolean plus = weaponPlusByChance();
-    
+
     return Weapon.builder()
       .plus(plus)
       .id(WeaponID.MINI_GUN)
@@ -1469,11 +1486,11 @@ public class Game implements Lifecycle {
       })
       .build();
   }
-  
+
   Weapon getDualPistol() {
     boolean plus = weaponPlusByChance();
     Sprite sprite = spriteCache.get(SpriteID.WEAPON_PISTOL);
-    
+
     return Weapon.builder()
       .plus(plus)
       .id(WeaponID.DUAL_PISTOL)
@@ -1491,7 +1508,7 @@ public class Game implements Lifecycle {
         Vec b = Vec.of(7, 0);
         Vec v = Vec.of(4, 0);
         bullets.add(makeBullet(pl.pos.add(b), v, 10));
-        bullets.add(makeBullet(pl.pos.add(b.mirror()), v, 10));
+        bullets.add(makeBullet(pl.pos.add(b.mirror()), v.mirror(), 10));
         if (plus) {
           bullets.add(makeBullet(pl.pos.add(b), Vec.of(v.y, v.x), 10));
           bullets.add(makeBullet(pl.pos.add(b), Vec.of(v.y, -v.x), 10));
@@ -1503,10 +1520,10 @@ public class Game implements Lifecycle {
       })
       .build();
   }
-  
+
   Weapon getShotGun() {
     boolean plus = weaponPlusByChance();
-    
+
     return Weapon.builder()
       .plus(plus)
       .id(WeaponID.SHOT_GUN)
@@ -1537,10 +1554,10 @@ public class Game implements Lifecycle {
       })
       .build();
   }
-  
+
   Weapon getDiscGun() {
     boolean plus = weaponPlusByChance();
-    
+
     return Weapon.builder()
       .plus(plus)
       .id(WeaponID.DISC_GUN)
@@ -1574,24 +1591,24 @@ public class Game implements Lifecycle {
       })
       .build();
   }
-  
+
   Weapon getKatana() {
     boolean plus = weaponPlusByChance();
-    
+
     return Weapon.builder()
       .plus(plus)
       .id(WeaponID.KATANA)
       .name("")
-      .sprite(spriteCache.get(SpriteID.WEAPON_KATANA_0))
+      .sprite(spriteCache.get(SpriteID.WEAPON_KATANA))
       .spriteOffset(Vec.ofInt(-4, -1))
       .firePeriod(plus ? 3 : 12)
       .draw(Weapon::baseDraw)
       .tick(w -> {
         if (w.cooldown == 0) {
-          w.sprite = spriteCache.get(SpriteID.WEAPON_KATANA_0);
+          w.sprite = spriteCache.get(SpriteID.WEAPON_KATANA);
           w.spriteOffset = Vec.ofInt(-4, -1);
         } else {
-          w.sprite = spriteCache.get(SpriteID.WEAPON_KATANA_1);
+          w.sprite = spriteCache.get(SpriteID.WEAPON_KATANA_ATTACKING);
           w.spriteOffset = Vec.ofInt(3, 0);
         }
       })
@@ -1609,7 +1626,7 @@ public class Game implements Lifecycle {
             if (delta.inRange((d.radius + 8) * (plus ? 2 : 1))) {
               // hit compressed space
               hitDisc(d, 50);
-              
+
               if (flipX) {
                 d.vel.x = -Math.abs(d.vel.x);
               } else {
@@ -1623,10 +1640,10 @@ public class Game implements Lifecycle {
       })
       .build();
   }
-  
+
   Weapon getBazooka() {
     boolean plus = weaponPlusByChance();
-    
+
     return Weapon.builder()
       .plus(plus)
       .id(WeaponID.BAZOOKA)
@@ -1648,10 +1665,10 @@ public class Game implements Lifecycle {
       })
       .build();
   }
-  
+
   Weapon getGrenadeLauncher() {
     boolean plus = weaponPlusByChance();
-    
+
     return Weapon.builder()
       .plus(plus)
       .id(WeaponID.GRENADE_LAUNCHER)
@@ -1672,10 +1689,10 @@ public class Game implements Lifecycle {
       })
       .build();
   }
-  
+
   Weapon getMines() {
     boolean plus = weaponPlusByChance();
-    
+
     return Weapon.builder()
       .plus(plus)
       .id(WeaponID.MINES)
@@ -1693,10 +1710,10 @@ public class Game implements Lifecycle {
       })
       .build();
   }
-  
+
   Weapon getFlameThrower() {
     boolean plus = weaponPlusByChance();
-    
+
     return Weapon.builder()
       .plus(plus)
       .id(WeaponID.FLAME_THROWER)
@@ -1720,10 +1737,10 @@ public class Game implements Lifecycle {
       })
       .build();
   }
-  
+
   Weapon getLaserRifle() {
     boolean plus = weaponPlusByChance();
-    
+
     return Weapon.builder()
       .plus(plus)
       .id(WeaponID.LASER_RIFLE)
@@ -1743,7 +1760,7 @@ public class Game implements Lifecycle {
           else {
             hitX += 8;
           }
-          
+
           for (Disc d : discs) {
             if (d.cooldown <= 0) {
               Vec v = Vec.of(
@@ -1774,7 +1791,7 @@ public class Game implements Lifecycle {
       })
       .build();
   }
-  
+
   Bullet makeBullet(Vec pos, Vec vel, int damage, boolean track) {
     return Bullet.builder()
       .pos(pos)
@@ -1786,7 +1803,7 @@ public class Game implements Lifecycle {
       .draw(Bullet::baseDraw)
       .build();
   }
-  
+
   Bullet makeBullet(Vec pos, Vec vel, int damage) {
     return makeBullet(pos, vel, damage, false);
   }
@@ -1805,7 +1822,7 @@ public class Game implements Lifecycle {
 
       // if done, explode
       if (s.removed) {
-        bullets.add(makeExplosion(s.pos, 20, plus ? 60 : 30, 30));
+        bulletsAdding.add(makeExplosion(s.pos, 20, plus ? 60 : 30, 30));
       }
       else {
         // still going, smoke
@@ -1860,7 +1877,7 @@ public class Game implements Lifecycle {
       // fuse!
       g.fuse--;
       if (g.fuse <= 0) {
-        bullets.add(makeExplosion(g.pos, 20, plus ? 40 : 30, 30));
+        bulletsAdding.add(makeExplosion(g.pos, 20, plus ? 40 : 30, 30));
         g.removed = true;
       }
     };
@@ -1902,7 +1919,7 @@ public class Game implements Lifecycle {
       if (m.fuse <= 0) {
         Disc hit = firstRayHit(m.lastPos, m.pos, 3);
         if (hit != null) {
-          bullets.add(makeExplosion(m.pos, 20, plus ? 100 : 30, 30));
+          bulletsAdding.add(makeExplosion(m.pos, 20, plus ? 100 : 30, 30));
           m.removed = true;
         }
       }
@@ -1913,7 +1930,7 @@ public class Game implements Lifecycle {
 
   Bullet makeFlame(Vec pos, Vec vel, boolean plus) {
     Bullet flame = makeBullet(pos, vel, 0);
-    
+
     Runnable calculateRadius = () -> {
       flame.radius = ((plus ? 60 : 30) - Math.abs(flame.fuse - 30)) * 0.375 + 2;
     };
@@ -1925,7 +1942,7 @@ public class Game implements Lifecycle {
       if (Math.random() < 0.5) {
         if (Math.random() < 0.5) {
           Graphics.map(palette[7], palette[10]);
-        } 
+        }
         else {
           Graphics.map(palette[7], palette[8]);
         }
@@ -1987,6 +2004,13 @@ public class Game implements Lifecycle {
 
   Bullet makeLaser(Vec start, Vec end, boolean plus) {
     Bullet laser = makeBullet(start, Vec.zero(), 0);
+
+    if (start.x > end.x) {
+      double temp = start.x;
+      start.x = end.x;
+      end.x = temp;
+    }
+
     laser.lastPos = start;
     laser.pos = end;
 
@@ -2011,7 +2035,12 @@ public class Game implements Lifecycle {
       // collide with discs
       for (Disc d : discs) {
         if (d.cooldown <= 0) {
-          if (d.pos.inRange(l.pos, d.radius + 3)) {
+          if (
+            d.pos.x + d.radius >= start.x - 3 &&
+            d.pos.x - d.radius <= end.x + 3 &&
+            d.pos.y + d.radius >= start.y - 3 &&
+            d.pos.y - d.radius <= end.y + 3
+          ) {
             // hit compressed space
             hitDisc(d, 100);
           }
@@ -2030,10 +2059,10 @@ public class Game implements Lifecycle {
 
   Bullet makeExplosion(Vec pos, double startRadius, double endRadius, double p) {
     Bullet explosion = makeBullet(pos, Vec.zero(), 0);
-    
+
     explosion.p = p;
     explosion.a = 0;
-    
+
     shake(10);
     Audios.emit(12);
 
@@ -2070,7 +2099,8 @@ public class Game implements Lifecycle {
     hit.health -= damage;
     hit.hitCooldown = 4;
     if (hit.health <= 0) {
-      discs.remove(hit);
+      hit.removed = true;
+      hit.cooldown = 9999;
       addNewSparks(hit, 2, 0, 1);
       addNewSparks(hit, 4, 0, 1);
       addNewSparks(hit, 8, 0, 1);
@@ -2094,45 +2124,53 @@ public class Game implements Lifecycle {
 
   static Disc firstRayHit(Vec start, Vec end, double r) {
     Disc nearest = null;
-    double nearest_dist = 0,
-      x = (start.x + end.x) * 0.5,
-      y = (start.y + end.y) * 0.5,
-      rdx = (end.x - start.x) * 0.5,
-      rdy = (end.y - start.y) * 0.5,
-      rlen = Math.sqrt(rdx * rdx + rdy * rdy);
-    for (Disc d : discs) {
-      // skip during cooldown :d
-      if (d.cooldown <= 0) {
-        // get offset
-        double dx = d.pos.x - x,
-          dy = d.pos.y - y;
+    double nearestDistSq = Double.MAX_VALUE;
 
-        // if zero length
-        // otherwise do ray
-        if (rlen == 0) {
-          // zero length, use radius
-          double sqdist = dx * dx + dy * dy;
-          if ((nearest == null || sqdist < nearest_dist) && sqdist <= (d.radius + r) * (d.radius + r)) {
-            // hit && nearest!
-            nearest = d;
-            nearest_dist = sqdist;
-          }
-        }
-        else {
-          // get offset in r space
-          double rsda = (dx * rdx + dy * rdy) / rlen,
-            rsdb = (dx * rdy - dy * rdx) / rlen,
-            comp_rsda = Math.max(Math.abs(rsda) - rlen, 0);
-          if ((nearest == null || rsda < nearest_dist) && comp_rsda * comp_rsda + rsdb * rsdb <= (d.radius + r) * (d.radius + r)) {
-            // hit && nearest!
-            nearest = d;
-            nearest_dist = rsda;
-          }
+    // Vector representing the ray
+    double dx = end.x - start.x;
+    double dy = end.y - start.y;
+    double rayLenSq = dx * dx + dy * dy;
+
+    for (Disc d : discs) {
+      if (d.cooldown > 0) continue;
+
+      // Vector from start to disc center
+      double tcx = d.pos.x - start.x;
+      double tcy = d.pos.y - start.y;
+
+      // Project disc center onto the ray line to find the closest point 't'
+      // t is normalized (0.0 = start, 1.0 = end)
+      double t = (rayLenSq == 0) ? 0 : (tcx * dx + tcy * dy) / rayLenSq;
+
+      // Clamp t to the segment [0, 1] to treat ray as a finite segment
+      double closestX, closestY;
+      if (t < 0) {
+        closestX = start.x;
+        closestY = start.y;
+      } else if (t > 1) {
+        closestX = end.x;
+        closestY = end.y;
+      } else {
+        closestX = start.x + t * dx;
+        closestY = start.y + t * dy;
+      }
+
+      // Distance from the closest point on segment to disc center
+      double distSq = (d.pos.x - closestX) * (d.pos.x - closestX) +
+        (d.pos.y - closestY) * (d.pos.y - closestY);
+
+      // Check if distance is within combined radii
+      double combinedR = d.radius + r;
+      if (distSq <= combinedR * combinedR) {
+        // We want the disc whose HIT point is closest to 'start'
+        // For simplicity, we use the distance to the disc center
+        double distToStartSq = tcx * tcx + tcy * tcy;
+        if (distToStartSq < nearestDistSq) {
+          nearest = d;
+          nearestDistSq = distToStartSq;
         }
       }
     }
-
-    // return best hit
     return nearest;
   }
 
@@ -2363,8 +2401,8 @@ public class Game implements Lifecycle {
     Graphics.camera(Vec.of(_scroll, 0));
     Graphics.tiles(titleTiles, Vec.of(-256, 0), 16 * 6, 16);
     Graphics.print(
-      "✽ v" + version + " ✽ GAME: Farbs ✽ MUSIC: Gruber ♪ THANKS: Farbs Jr, Lan, DinoPuncher, Pyjamads ♥ GREETZ: Disc Room Team & Vlambeer ˇ", 
-      Vec.of(128, 120), 
+      "✽  v" + version + " ✽  GAME: Farbs ✽  MUSIC: Gruber ♪  THANKS: Farbs Jr, Lan, DinoPuncher, Pyjamads ♥  GREETZ: Disc Room Team & Vlambeer ˇ",
+      Vec.of(128, 120),
       palette[9]
     );
 
@@ -2377,7 +2415,7 @@ public class Game implements Lifecycle {
       alpha = 1 - (frame - 30) / 15;
       alpha *= alpha * alpha;
       Graphics.camera(Vec.of(
-        Math.random() * alpha * 10, 
+        Math.random() * alpha * 10,
         Math.random() * alpha * 10
       ));
     }
@@ -2397,7 +2435,7 @@ public class Game implements Lifecycle {
     // prompt to start
     if (frame > 120 && (frame % 30 < 15)) {
       prettyPrint(
-        "PRESS 🅾️ OR ❎ TO START",
+        "PRESS 🅾️  OR ❎  TO START",
         Vec.of(64 - 2 * 22, 80),
         palette[7]
       );

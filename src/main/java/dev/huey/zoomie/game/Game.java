@@ -1,10 +1,7 @@
 package dev.huey.zoomie.game;
 
 import dev.huey.zoomie.api.Entry;
-import dev.huey.zoomie.api.bases.Font;
-import dev.huey.zoomie.api.bases.Lifecycle;
-import dev.huey.zoomie.api.bases.Sprite;
-import dev.huey.zoomie.api.bases.Vec;
+import dev.huey.zoomie.api.bases.*;
 import dev.huey.zoomie.api.modules.Audios;
 import dev.huey.zoomie.api.modules.Graphics;
 import dev.huey.zoomie.api.modules.Inputs;
@@ -52,6 +49,9 @@ public class Game implements Lifecycle {
     .build();
   
   Sprite sheet = Sprite.load("spritesheet");
+
+  TileMap gameTiles = new TileMap();
+  TileMap titleTiles = new TileMap();
   
   enum SpriteID {
     PL_RUN_0,
@@ -89,7 +89,11 @@ public class Game implements Lifecycle {
     WEAPON_MINES,
     WEAPON_FLAME_THROWER,
     WEAPON_LASER_RIFLE,
-    WEAPON_LASER_RIFLE_MUZZLE
+    WEAPON_LASER_RIFLE_MUZZLE,
+    BULLET_YELLOW,
+    BULLET_YELLOW_BIG,
+    BULLET_SHELL,
+    BULLET_GRENADE
   }
   
   EnumMap<SpriteID, Sprite> spriteCache = new EnumMap<>(SpriteID.class);
@@ -213,13 +217,30 @@ public class Game implements Lifecycle {
       SpriteID.WEAPON_LASER_RIFLE_MUZZLE,
       sheet.slice(Vec.ofInt(80, 64), 8, 8)
     );
-    
+
+    spriteCache.put(
+      SpriteID.BULLET_YELLOW,
+      sheet.slice(Vec.ofInt(8, 64), 8, 8)
+    );
+    spriteCache.put(
+      SpriteID.BULLET_YELLOW_BIG,
+      sheet.slice(Vec.ofInt(16, 64), 8, 8)
+    );
+    spriteCache.put(
+      SpriteID.BULLET_SHELL,
+      sheet.slice(Vec.ofInt(24, 64), 8, 8)
+    );
+    spriteCache.put(
+      SpriteID.BULLET_GRENADE,
+      sheet.slice(Vec.ofInt(32, 64), 8, 8)
+    );
+
     Graphics.font(font);
     
     initSplashScreen();
   }
   
-  Color[] palette = {
+  static Color[] palette = {
     Color.web("#000000ff"), Color.web("#422136ff"),
     Color.web("#7e2553ff"), Color.web("#742f29ff"),
     Color.web("#ff6e59ff"), Color.web("#5f574fff"),
@@ -240,8 +261,8 @@ public class Game implements Lifecycle {
   
   GameState state = GameState.SPLASH;
   
-  int time() {
-    return (int) Entry.instance.time() / 1000_000_000;
+  double time() {
+    return Entry.instance.time() / 1000_000_000d;
   }
   
   static class ButtonsManager {
@@ -297,26 +318,26 @@ public class Game implements Lifecycle {
   
   ButtonsManager buttons = new ButtonsManager();
   
-  boolean alwaysPlusWeapon = false;
-  boolean alwaysPlusDisc = false;
+  static boolean alwaysPlusWeapon = false;
+  static boolean alwaysPlusDisc = false;
   
   String version = "0.8";
   
   Vec camera = Vec.zero();
   
-  class Player {
+  static class Player {
     Vec pos = Vec.of(64, 64);
     Vec vel = Vec.zero();
     
     Sprite spr;
   }
   
-  Player pl = new Player();
+  static Player pl = new Player();
   
   Vec input = Vec.zero();
   
   @Builder
-  class Disc {
+  static class Disc {
     @Builder.Default
     final boolean plus = false;
     final int radius;
@@ -326,7 +347,7 @@ public class Game implements Lifecycle {
     @Builder.Default
     Vec vel = Vec.zero();
     
-    int health;
+    double health;
     @Builder.Default
     boolean blood = false;
     
@@ -338,28 +359,112 @@ public class Game implements Lifecycle {
     int frame = (int) Math.floor(Math.random() * 8);
   }
   
-  List<Disc> discs = new ArrayList<>();
+  static List<Disc> discs = new ArrayList<>();
   
-  @Builder
-  class Bullet implements Lifecycle {
+  @Builder(buildMethodName = "internalBuild")
+  static class Bullet implements Lifecycle {
+
+    public static class BulletBuilder {
+      public Bullet build() {
+        Bullet bullet = this.internalBuild();
+        bullet.lastPos = bullet.pos;
+        return bullet;
+      }
+    }
+
+
+    Vec pos, vel;
     @Builder.Default
-    boolean removed = false;
+    Vec lastPos = null;
+
+    double damage;
+    double drag;
+
+    boolean track;
     
     Sprite sprite;
+
+    @Builder.Default
+    double smokeCooldown = 0;
+    @Builder.Default
+    double fuse = 0;
+    @Builder.Default
+    double radius = 0;
+    @Builder.Default
+    double p = 0, a = 0;
+
+    @Builder.Default
+    boolean removed = false;
+
+    void baseTick() {
+      // move
+      lastPos = pos.clone();
+      pos = pos.add(vel);
+      vel = vel.multiply(drag);
+
+      // collide with discs
+      Disc hit = firstRayHit(lastPos, pos, 2);
+      if (hit != null) {
+        hitDisc(hit, damage);
+        removed = true;
+        return;
+      }
+
+      // track
+      Disc nearest = null;
+      double minSqDist = Double.MAX_VALUE;
+      if (track) {
+        for (Disc d : discs) {
+          if (d.cooldown > 0) continue;
+
+          double distSq = d.pos.distSq(pos);
+          if (distSq < minSqDist) {
+            nearest = d;
+            minSqDist = distSq;
+          }
+        }
+      }
+      if (nearest != null) {
+        double ba = Math.atan2(vel.y, vel.x);
+        Vec off = nearest.pos.minus(pos);
+        double da = off.angle();
+        double angle = Math.min(Math.max(-0.3, da - ba > Math.PI ? da - ba - Math.PI : da - ba), 0.3);
+        vel.x += Math.cos(ba + angle) * 0.6;
+        vel.y += Math.sin(ba + angle) * 0.6;
+        vel.x *= 0.87;
+        vel.y *= 0.87;
+      }
+
+      // collide with edges
+      boolean alive = pos.x >= -2 && pos.x <= 129
+        && pos.y >= -2 && pos.y <= 129;
+      if (drag < 1) {
+        if (Math.abs(vel.x) < 0.1 && Math.abs(vel.y) < 0.1) {
+          alive = false;
+        }
+      }
+      if (!alive) removed = true;
+    }
+
+    void baseDraw() {
+      Graphics.sprite(sprite, pos.minus(4, 4), vel.x < 0);
+    }
+
+    Consumer<Bullet> tick, draw;
     
     @Override
     public void start() {
-    
+
     }
     
     @Override
     public void update() {
-    
+      tick.accept(this);
     }
     
     @Override
     public void render() {
-    
+      draw.accept(this);
     }
   }
   
@@ -368,12 +473,14 @@ public class Game implements Lifecycle {
   double boxCooldown = 1;
   Vec weaponGrab = Vec.zero();
   
-  int frame = 0;
+  double frame = 0;
   
   Vec box = Vec.of(
     Math.random() * 92 + 16,
     Math.random() * 32 + 16
   );
+
+  Sprite boxSprite = sheet.slice(Vec.ofInt(40, 8), 16, 16);
   
   double spawnCooldown = 0;
   double laserCooldown = 0;
@@ -384,14 +491,30 @@ public class Game implements Lifecycle {
   
   boolean newHighScore = false;
   boolean showingBest = false;
-  int score = 0;
+  static int score = 0;
   
-  @Builder
-  class Particle implements Lifecycle {
+  @Builder(buildMethodName = "internalBuild")
+  static class Particle implements Lifecycle {
+
+    public static class ParticleBuilder {
+      public Particle build() {
+        Particle particle = this.internalBuild();
+        particle.lastPos = particle.pos;
+        return particle;
+      }
+    }
+
+    Vec pos, vel;
+    Vec lastPos;
+
+    double cooldown;
+    double a;
+    Color c;
+
     @Builder.Default
     boolean removed = false;
-    
-    final Runnable tick, draw;
+
+    Consumer<Particle> tick, draw;
     
     @Override
     public void start() {
@@ -400,20 +523,20 @@ public class Game implements Lifecycle {
     
     @Override
     public void update() {
-      tick.run();
+      tick.accept(this);
     }
     
     @Override
     public void render() {
-      draw.run();
+      draw.accept(this);
     }
   }
   
-  List<Particle> particles = List.of();
+  static List<Particle> particles = new ArrayList<>();
   
   double shake = 0;
   
-  boolean flipX = false;
+  static boolean flipX = false;
   
   enum WeaponID {
     PISTOL,
@@ -431,7 +554,7 @@ public class Game implements Lifecycle {
     LASER_RIFLE
   }
   
-  boolean weaponPlusByChance() {
+  static boolean weaponPlusByChance() {
     double plusRand = Math.random();
     return alwaysPlusWeapon || (
       score >= 10 && ((
@@ -442,7 +565,7 @@ public class Game implements Lifecycle {
   }
   
   @Builder
-  class Weapon implements Lifecycle {
+  static class Weapon implements Lifecycle {
     final WeaponID id;
     final String name;
     Sprite sprite;
@@ -471,18 +594,8 @@ public class Game implements Lifecycle {
         flipX
       );
     }
-    
-    @Builder.Default
-    final Consumer<Weapon>
-      tick = w -> {
-      
-      },
-      draw = w -> {
-        baseDraw();
-      },
-      fire = w -> {
-      
-      };
+
+    final Consumer<Weapon> tick, draw, fire;
     
     @Override
     public void start() {}
@@ -699,17 +812,16 @@ public class Game implements Lifecycle {
       
       // smoke
       if (input.y < 0) {
-        Particle spark = oldSpark();
-        spark.a = 0;
-        spark.cooldown = 5 + Math.floor(Math.random() * 5);
-        spark.x = pl.pos.x - 1;
-        spark.y = pl.pos.y + 2;
+        Particle spark = oldSpark(
+          Vec.of(pl.pos.x - 1, pl.pos.y + 2),
+          5 + Math.floor(Math.random() * 5),
+          palette[7]
+        );
         if (flipX) {
-          spark.x += 5;
+          spark.pos.x += 5;
         } else {
-          spark.x -= 5;
+          spark.pos.x -= 5;
         }
-        spark.c = palette[7];
         
         particles.add(spark);
       }
@@ -728,7 +840,7 @@ public class Game implements Lifecycle {
             xStart += 4;
             xEnd = 128;
           }
-          bullets.add(makeLaser(xStart, xEnd, pl.pos.y, currentWeapon.plus));
+          bullets.add(makeLaser(Vec.of(xStart, pl.pos.y), Vec.of(xEnd, pl.pos.y), currentWeapon.plus));
           shake(3);
         }
       }
@@ -897,7 +1009,7 @@ public class Game implements Lifecycle {
         }
         
         if (fire) {
-          currentWeapon.fire.run();
+          currentWeapon.fire.accept(currentWeapon);
           currentWeapon.cooldown = currentWeapon.firePeriod;
         }
       }
@@ -1010,7 +1122,7 @@ public class Game implements Lifecycle {
         Graphics.map(palette[0], palette[3]);
       }
       
-      currentWeapon.draw.run();
+      currentWeapon.draw.accept(currentWeapon);
       
       Graphics.map(palette[7], palette[7]);
       Graphics.map(palette[6], palette[6]);
@@ -1065,16 +1177,16 @@ public class Game implements Lifecycle {
       Graphics.rect(Vec.of(0, 32), Vec.of(128, 98), palette[1]);
       
       // game over
-      int write = Math.min(60 - deadCooldown, 30) * 2;
+      double write = Math.min(60 - deadCooldown, 30) * 2;
       Graphics.map(palette[7], palette[0]);
       Graphics.easeSprite(
-        sheet.slice(Vec.ofInt(1, 122), write, 5),
+        sheet.slice(Vec.ofInt(1, 122), (int) write, 5),
         Vec.of(64 - write, 32 + 8 + 2),
         write * 2, 10
       );
       Graphics.map(palette[7], palette[7]);
       Graphics.easeSprite(
-        sheet.slice(Vec.ofInt(1, 122), write, 5),
+        sheet.slice(Vec.ofInt(1, 122), (int) write, 5),
         Vec.of(64 - write, 32 + 8),
         write * 2, 10
       );
@@ -1253,6 +1365,7 @@ public class Game implements Lifecycle {
       .sprite(spriteCache.get(SpriteID.WEAPON_PISTOL))
       .spriteOffset(Vec.ofInt(-1, 0))
       .firePeriod(6)
+      .draw(Weapon::baseDraw)
       .fire(_ -> {
         Vec b = Vec.of(7, 0);
         Vec v = Vec.of(4, 0);
@@ -1276,8 +1389,9 @@ public class Game implements Lifecycle {
       .id(WeaponID.REVOLVER)
       .name("REVOLVER")
       .sprite(spriteCache.get(SpriteID.WEAPON_REVOLVER))
-      .firePeriod(plus ? 12 : 6)
       .autoFire(plus)
+      .firePeriod(plus ? 12 : 6)
+      .draw(Weapon::baseDraw)
       .fire(_ -> {
         Vec b = Vec.of(7, 0);
         Vec v = Vec.of(4, 0);
@@ -1306,6 +1420,7 @@ public class Game implements Lifecycle {
       .spriteOffset(Vec.ofInt(-4, 0))
       .autoFire(true)
       .firePeriod(plus ? 3 : 4)
+      .draw(Weapon::baseDraw)
       .fire(_ -> {
         Vec b = Vec.of(7, 0);
         Vec v = Vec.of(4, 0);
@@ -1334,6 +1449,7 @@ public class Game implements Lifecycle {
       .spriteOffset(Vec.ofInt(-3, -8))
       .autoFire(true)
       .firePeriod(plus ? 0 : 1)
+      .draw(Weapon::baseDraw)
       .fire(_ -> {
         for (int i = 0; i < (plus ? 6 : 3); ++i) {
           Vec b = Vec.of(11, 0);
@@ -1399,6 +1515,7 @@ public class Game implements Lifecycle {
       .spriteOffset(Vec.ofInt(-5, 1))
       .autoFire(plus)
       .firePeriod(plus ? 10 : 30)
+      .draw(Weapon::baseDraw)
       .fire(_ -> {
         for (int i = 0; i < (plus ? 15 : 9); ++i) {
           Vec b = Vec.of(7, 0);
@@ -1431,6 +1548,7 @@ public class Game implements Lifecycle {
       .sprite(spriteCache.get(SpriteID.WEAPON_DISC_GUN))
       .spriteOffset(Vec.ofInt(-2, 0))
       .firePeriod(6)
+      .draw(Weapon::baseDraw)
       .fire(_ -> {
         Vec b = Vec.of(7, 0);
         Vec v = Vec.of(
@@ -1467,6 +1585,7 @@ public class Game implements Lifecycle {
       .sprite(spriteCache.get(SpriteID.WEAPON_KATANA_0))
       .spriteOffset(Vec.ofInt(-4, -1))
       .firePeriod(plus ? 3 : 12)
+      .draw(Weapon::baseDraw)
       .tick(w -> {
         if (w.cooldown == 0) {
           w.sprite = spriteCache.get(SpriteID.WEAPON_KATANA_0);
@@ -1477,7 +1596,7 @@ public class Game implements Lifecycle {
         }
       })
       .fire(_ -> {
-        double bx = 16
+        double bx = 16;
         if (flipX) {
           bx = -bx;
         }
@@ -1516,6 +1635,7 @@ public class Game implements Lifecycle {
       .spriteOffset(Vec.ofInt(-6, 0))
       .autoFire(plus)
       .firePeriod(plus ? 20 : 60)
+      .draw(Weapon::baseDraw)
       .fire(_ -> {
         double bx = 9, vx = 1;
         if (flipX) {
@@ -1540,13 +1660,14 @@ public class Game implements Lifecycle {
       .spriteOffset(Vec.ofInt(-4, 0))
       .autoFire(plus)
       .firePeriod(plus ? 20 : 60)
+      .draw(Weapon::baseDraw)
       .fire(_ -> {
         double bx = 7, vx = 3;
         if (flipX) {
           bx *= -1;
           vx *= -1;
         }
-        bullets.add(makeGrenade(pl.pos.add(bx, 0), Vec.of(vx, 0), plus));
+        bullets.add(makeGrenade(pl.pos.add(bx, 0), Vec.of(vx, -2), plus));
         Audios.emit(37);
       })
       .build();
@@ -1584,6 +1705,7 @@ public class Game implements Lifecycle {
       .spriteOffset(Vec.ofInt(-2, 0))
       .autoFire(true)
       .firePeriod(0)
+      .draw(Weapon::baseDraw)
       .fire(_ -> {
         Vec b = Vec.of(7, 0);
         Vec v = Vec.of(
@@ -1610,6 +1732,7 @@ public class Game implements Lifecycle {
       .spriteOffset(Vec.ofInt(-3, 0))
       .autoFire(plus)
       .firePeriod(plus ? 12 : 60)
+      .draw(Weapon::baseDraw)
       .tick(w -> {
         if (w.cooldown > (plus ? 4 : 30)) {
           // collide with discs
@@ -1653,10 +1776,647 @@ public class Game implements Lifecycle {
   }
   
   Bullet makeBullet(Vec pos, Vec vel, int damage, boolean track) {
-  
+    return Bullet.builder()
+      .pos(pos)
+      .vel(vel)
+      .drag(1)
+      .damage(damage)
+      .track(track)
+      .tick(Bullet::baseTick)
+      .draw(Bullet::baseDraw)
+      .build();
   }
   
   Bullet makeBullet(Vec pos, Vec vel, int damage) {
-    makeBullet(pos, vel, damage, false);
+    return makeBullet(pos, vel, damage, false);
+  }
+
+  Bullet makeShell(Vec pos, Vec vel, boolean plus) {
+    Bullet shell = makeBullet(pos, vel, 0);
+
+    shell.sprite = spriteCache.get(SpriteID.BULLET_SHELL);
+
+    shell.tick = s -> {
+      // regular bulupdate
+      s.baseTick();
+
+      // now speed up
+      s.vel.x += (s.vel.x > 0 ? 1 : -1) * 0.1;
+
+      // if done, explode
+      if (s.removed) {
+        bullets.add(makeExplosion(s.pos, 20, plus ? 60 : 30, 30));
+      }
+      else {
+        // still going, smoke
+        s.smokeCooldown--;
+        if (s.smokeCooldown <= 0) {
+          particles.add(smokePuff(s.pos, 2, 0.025, 0));
+          s.smokeCooldown = 4 + Math.random() * 2;
+        }
+      }
+    };
+
+    return shell;
+  }
+
+  Bullet makeGrenade(Vec pos, Vec vel, boolean plus) {
+    Bullet grenade = makeBullet(pos, vel, 0);
+
+    grenade.fuse = plus ? 180 : 60;
+
+    grenade.draw = g -> {
+      Graphics.sprite(g.sprite, g.pos.minus(3.5, 3.5));
+    };
+
+    grenade.tick = g -> {
+      // move
+      g.lastPos = g.pos.clone();
+      g.pos = g.pos.add(g.vel);
+      g.vel.y += 0.2;
+
+      // collide with discs
+      Disc hit = firstRayHit(g.lastPos, g.pos, 2);
+      if (hit != null) {
+        g.fuse = 0;
+      }
+
+      double elasticity = plus ? 1.05 : 0.75;
+
+      // bounce off edges
+      if (g.pos.x < 0) {
+        g.vel.x = Math.abs(g.vel.x) * elasticity;
+      }
+      if (g.pos.x > 128) {
+        g.vel.x = -Math.abs(g.vel.x) * elasticity;
+      }
+      if (g.pos.y < 0) {
+        g.vel.y = Math.abs(g.vel.y) * elasticity;
+      }
+      if (g.pos.y > 128) {
+        g.vel.y = -Math.abs(g.vel.y) * elasticity;
+      }
+
+      // fuse!
+      g.fuse--;
+      if (g.fuse <= 0) {
+        bullets.add(makeExplosion(g.pos, 20, plus ? 40 : 30, 30));
+        g.removed = true;
+      }
+    };
+
+    return grenade;
+  }
+
+  Bullet makeMine(Vec pos, boolean plus) {
+    Bullet mine = makeBullet(pos, Vec.zero(), 0);
+
+    mine.sprite = spriteCache.get(SpriteID.WEAPON_MINES);
+
+    mine.fuse = plus ? 180 : 60;
+
+    mine.draw = m -> {
+      if (m.fuse > 0 || frame % 16 < 8) {
+        Graphics.map(palette[8], palette[0]);
+      }
+      Graphics.sprite(m.sprite, m.pos.minus(4, 4));
+      Graphics.map(palette[8], palette[8]);
+    };
+
+    mine.tick = m -> {
+      // move
+      m.lastPos = m.pos.clone();
+      m.pos.y += m.vel.y;
+      m.vel.y += 0.2;
+      if (m.pos.y > 128) {
+        m.pos.y = 128;
+        m.vel.y = 0;
+      }
+
+      // fuse
+      if (m.fuse > 0) {
+        m.fuse--;
+      }
+
+      // collide with discs
+      if (m.fuse <= 0) {
+        Disc hit = firstRayHit(m.lastPos, m.pos, 3);
+        if (hit != null) {
+          bullets.add(makeExplosion(m.pos, 20, plus ? 100 : 30, 30));
+          m.removed = true;
+        }
+      }
+    };
+
+    return mine;
+  }
+
+  Bullet makeFlame(Vec pos, Vec vel, boolean plus) {
+    Bullet flame = makeBullet(pos, vel, 0);
+    
+    Runnable calculateRadius = () -> {
+      flame.radius = ((plus ? 60 : 30) - Math.abs(flame.fuse - 30)) * 0.375 + 2;
+    };
+    calculateRadius.run();
+
+    flame.fuse = plus ? 90 : 60;
+
+    flame.draw = f -> {
+      if (Math.random() < 0.5) {
+        if (Math.random() < 0.5) {
+          Graphics.map(palette[7], palette[10]);
+        } 
+        else {
+          Graphics.map(palette[7], palette[8]);
+        }
+      } else if (Math.random() < 0.5) {
+        Graphics.map(palette[7], palette[4]);
+      }
+      Graphics.easeSprite(
+        sheet.slice(
+          Vec.ofInt(40 + Math.floor(Math.random() * 4) * 8, 64),
+          8, 8
+        ),
+        f.pos.minus(f.radius, f.radius),
+        f.radius * 2, f.radius * 2,
+        Math.random() < 0.5
+      );
+      Graphics.map(palette[7], palette[7]);
+    };
+
+    flame.tick = f -> {
+      calculateRadius.run();
+
+      // move
+      f.lastPos = f.pos.clone();
+      f.pos = f.pos.add(f.vel);
+      f.vel.y += 0.2;
+      f.vel = f.vel.multiply(0.9);
+
+      // collide with discs
+      if (Math.random() < 0.5) {
+        Disc hit = firstRayHit(f.lastPos, f.pos, f.radius);
+        if (hit != null) {
+          hitDisc(hit, 1);
+        }
+      }
+
+      // bounce off edges
+      if (f.pos.x < 0) {
+        f.vel.x = Math.abs(f.vel.x);
+      }
+      if (f.pos.x > 128) {
+        f.vel.x = -Math.abs(f.vel.x);
+      }
+      if (f.pos.y < 0) {
+        f.vel.y = Math.abs(f.vel.y);
+      }
+      if (f.pos.y > 128) {
+        f.vel.y = -Math.abs(f.vel.y);
+      }
+
+      // fuse!
+      f.fuse--;
+      if (f.fuse <= 0) {
+        f.removed = true;
+      }
+    };
+
+    return flame;
+  }
+
+  Bullet makeLaser(Vec start, Vec end, boolean plus) {
+    Bullet laser = makeBullet(start, Vec.zero(), 0);
+    laser.lastPos = start;
+    laser.pos = end;
+
+    laser.fuse = plus ? 12 : 30;
+
+    laser.draw = _ -> {
+      Graphics.easeSprite(
+        sheet.slice(
+          Vec.ofInt(
+            88 + 5 - Math.floor(laser.fuse / (plus ? 6 : 30) * 6),
+            64
+          ),
+          1, 8
+        ),
+        laser.lastPos.minus(0, 4),
+        laser.pos.x - laser.lastPos.x,
+        8
+      );
+    };
+
+    laser.tick = l -> {
+      // collide with discs
+      for (Disc d : discs) {
+        if (d.cooldown <= 0) {
+          if (d.pos.inRange(l.pos, d.radius + 3)) {
+            // hit compressed space
+            hitDisc(d, 100);
+          }
+        }
+      }
+
+      // age
+      l.fuse--;
+      if (l.fuse <= 0) {
+        l.removed = true;
+      }
+    };
+
+    return laser;
+  }
+
+  Bullet makeExplosion(Vec pos, double startRadius, double endRadius, double p) {
+    Bullet explosion = makeBullet(pos, Vec.zero(), 0);
+    
+    explosion.p = p;
+    explosion.a = 0;
+    
+    shake(10);
+    Audios.emit(12);
+
+    explosion.draw = e -> {
+      Color col = palette[7];
+      double alpha = e.a / e.p,
+        radius = startRadius + (endRadius - startRadius) * alpha;
+      if (alpha > 0.5) {
+        col = palette[0];
+      }
+      Graphics.fillCircle(e.pos, radius, col);
+    };
+
+    explosion.tick = e -> {
+      e.a++;
+      double alpha = e.a / e.p,
+        radius = startRadius + (endRadius - startRadius) * alpha;
+      for (Disc d : discs) {
+        if (d.cooldown <= 0) {
+          if (d.pos.inRange(e.pos, d.radius + radius)) {
+            hitDisc(d, 100);
+          }
+        }
+      }
+      if (e.a >= e.p) {
+        e.removed = true;
+      }
+    };
+
+    return explosion;
+  }
+
+  static void hitDisc(Disc hit, double damage) {
+    hit.health -= damage;
+    hit.hitCooldown = 4;
+    if (hit.health <= 0) {
+      discs.remove(hit);
+      addNewSparks(hit, 2, 0, 1);
+      addNewSparks(hit, 4, 0, 1);
+      addNewSparks(hit, 8, 0, 1);
+      addNewSparks(hit, 16, 0, 1);
+      particles.add(makeFlash(hit.pos, hit.radius, palette[10], 5));
+      // death sound
+      if (hit.radius < 10) {
+        if (hit.seek) {
+          Audios.emit(11);
+        } else {
+          Audios.emit(10);
+        }
+      } else {
+        Audios.emit(13);
+      }
+    } else {
+      // damage sound
+      Audios.emit(9);
+    }
+  }
+
+  static Disc firstRayHit(Vec start, Vec end, double r) {
+    Disc nearest = null;
+    double nearest_dist = 0,
+      x = (start.x + end.x) * 0.5,
+      y = (start.y + end.y) * 0.5,
+      rdx = (end.x - start.x) * 0.5,
+      rdy = (end.y - start.y) * 0.5,
+      rlen = Math.sqrt(rdx * rdx + rdy * rdy);
+    for (Disc d : discs) {
+      // skip during cooldown :d
+      if (d.cooldown <= 0) {
+        // get offset
+        double dx = d.pos.x - x,
+          dy = d.pos.y - y;
+
+        // if zero length
+        // otherwise do ray
+        if (rlen == 0) {
+          // zero length, use radius
+          double sqdist = dx * dx + dy * dy;
+          if ((nearest == null || sqdist < nearest_dist) && sqdist <= (d.radius + r) * (d.radius + r)) {
+            // hit && nearest!
+            nearest = d;
+            nearest_dist = sqdist;
+          }
+        }
+        else {
+          // get offset in r space
+          double rsda = (dx * rdx + dy * rdy) / rlen,
+            rsdb = (dx * rdy - dy * rdx) / rlen,
+            comp_rsda = Math.max(Math.abs(rsda) - rlen, 0);
+          if ((nearest == null || rsda < nearest_dist) && comp_rsda * comp_rsda + rsdb * rsdb <= (d.radius + r) * (d.radius + r)) {
+            // hit && nearest!
+            nearest = d;
+            nearest_dist = rsda;
+          }
+        }
+      }
+    }
+
+    // return best hit
+    return nearest;
+  }
+
+  Particle oldSpark(Vec v, double cooldown, Color c) {
+    return Particle.builder()
+      .pos(v)
+      .cooldown(cooldown)
+      .c(c)
+      .tick(s -> {
+        s.lastPos = s.pos;
+        s.cooldown = Math.max(s.cooldown - 1, 0);
+        s.pos = s.pos.add(Vec.ofPolar(
+          s.a * -2 * Math.PI,
+          s.cooldown * 0.1)
+        );
+        if (!(s.cooldown > 0 || (s.c != palette[7] && s.c != palette[10]))) {
+          s.removed = true;
+        }
+      })
+      .draw(s -> {
+        if (s.cooldown > 0) {
+          Vec[] offsets;
+          if (s.c != palette[10] && s.c != palette[7]) {
+            offsets = new Vec[]{
+              Vec.of(0, 0),
+              Vec.of(-1, 0),
+              Vec.of(1, 0),
+              Vec.of(0, -1),
+              Vec.of(0, 1)
+            };
+          }
+          else {
+            offsets = new Vec[]{
+              Vec.of(0, 0),
+              Vec.of(0, 1),
+              Vec.of(1, 0),
+              Vec.of(1, 1)
+            };
+          }
+          for (Vec o : offsets) {
+            if (s.lastPos != null)
+              Graphics.line(s.pos.add(o), s.lastPos.add(o), s.c);
+          }
+        }
+        else {
+          Graphics.fillCircle(s.pos, 2, palette[2]);
+        }
+      })
+      .build();
+  }
+
+  void addSparks(Disc d, Color c, double minSpeed, double aMin, double aMax) {
+    double ao = Math.random();
+    for (int i = 0; i < 8; ++i) {
+      double a = ((ao + i / 8d) % 1) * (aMax - aMin) + aMin;
+
+      Particle spark = oldSpark(
+        d.pos.add(Vec.ofPolar((a - 0.25) * -2 * Math.PI, d.radius)),
+        minSpeed + Math.floor(Math.random() * 60 * Math.random()),
+        c
+      );
+      spark.a = a;
+      spark.update();
+      particles.add(spark);
+    }
+  }
+
+  static Particle newSpark(Vec v, double a, double spd, boolean big) {
+    Vec[] offsets;
+    if (big) {
+      offsets = new Vec[]{
+        Vec.of(0, 0),
+        Vec.of(-1, 0),
+        Vec.of(1, 0),
+        Vec.of(0, -1),
+        Vec.of(0, 1)
+      };
+    }
+    else {
+      offsets = new Vec[]{
+        Vec.of(0, 0),
+        Vec.of(0, 1),
+        Vec.of(1, 0),
+        Vec.of(1, 1)
+      };
+    }
+
+    return Particle.builder()
+      .pos(v)
+      .vel(Vec.ofPolar(a * -2 * Math.PI, spd))
+      .tick(s -> {
+        s.lastPos = s.pos.clone();
+        s.pos = s.pos.add(s.vel);
+        s.vel.y += 0.25;
+        if (s.pos.y > 128) {
+          s.removed = true;
+        }
+      })
+      .draw(s -> {
+        for (Vec o : offsets) {
+          if (s.lastPos != null)
+            Graphics.line(s.pos.add(o), s.lastPos.add(o), palette[10]);
+        }
+        if (s.lastPos != null)
+          Graphics.line(s.pos, s.lastPos, palette[10]);
+      })
+      .build();
+  }
+
+  static void addNewSparks(Disc d, double minSpeed, double aMin, double aMax) {
+    double ao = Math.random();
+    for (int i = 1; i <= 8; ++i) {
+      double a = ((ao + i / 8d) % 1) * (aMax - aMin) + aMin;
+      Particle spark = newSpark(
+        d.pos.add(Vec.ofPolar((a - 0.25) * -2 * Math.PI, d.radius)),
+        a,
+        minSpeed + Math.floor(Math.random() * 6 * Math.random()),
+        d.radius > 10
+      );
+      spark.update();
+      particles.add(spark);
+    }
+  }
+
+  Particle smokePuff(Vec v, double o, double delta, double lift) {
+    double a = Math.random();
+
+    Particle puff = Particle.builder()
+      .pos(v.add(Vec.ofPolar(a * -2 * Math.PI, 0)))
+      .cooldown(0)
+      .build();
+    puff.tick = p -> {
+      p.cooldown += delta;
+      p.pos.y -= lift;
+      if (p.cooldown >= 1) {
+        p.removed = true;
+      }
+    };
+    puff.draw = p -> {
+      double r = (1 - p.cooldown) * 6;
+      if (r > 4) {
+        Graphics.fillCircle(p.pos.add(0, 2), r, palette[0]);
+      }
+      if (r > 2) {
+        Graphics.fillCircle(p.pos.add(0, 1), r, palette[0]);
+      }
+      Graphics.fillCircle(p.pos, r, palette[5]);
+    };
+    return puff;
+  }
+
+  void boxParticles() {
+    for (int i = 1; i <= 3; ++i) {
+      particles.add(smokePuff(box, 8, Math.random() * 0.05 + 0.025, 1));
+    }
+  }
+
+  static Particle makeFlash(Vec v, double r, Color c, double period) {
+    return Particle.builder()
+      .pos(v)
+      .c(c)
+      .cooldown(period)
+      .tick(f -> {
+        f.cooldown--;
+        if (f.cooldown <= 0) {
+          f.removed = true;
+        }
+      })
+      .draw(f -> {
+        Color col = f.c;
+        if (period - f.cooldown <= 2) {
+          col = palette[7];
+        }
+        Graphics.fillCircle(f.pos, r + f.cooldown - 5, c);
+      })
+      .build();
+  }
+
+  void initSplashScreen() {
+    Audios.emit(8);
+  }
+
+  void updateSplashScreen() {
+    if (buttons.oOnce() || buttons.xOnce() || time() >= 8) {
+      state = GameState.TITLE;
+      initTitleScreen();
+      return;
+    }
+
+    if (time() >= 7) {
+      Audios.emit(-1);
+    }
+  }
+
+  void drawSplashScreen() {
+    Graphics.clear(palette[0]);
+    String string = "Farbs";
+    int len = (int) Math.floor(Math.min(Math.max(time() * 6 - 6, 0), string.length()));
+    len = (int) Math.max(Math.min(len, 30 - time() * 6), 0);
+    string = string.substring(0, len);
+    if ((time() * 4) % 2 < 1) {
+      string = string + "_";
+    }
+    if (time() < 7) {
+      Graphics.print(string, Vec.of(64 - 6 * 2, 64 - 5), palette[7]);
+    }
+  }
+
+  int _scroll = 16;
+
+  void initTitleScreen() {
+    Graphics.clear(palette[0]);
+  }
+
+  void updateTitleScreen() {
+    if (buttons.oOnce() || buttons.xOnce()) {
+      state = GameState.GAME;
+      initGame();
+      return;
+    }
+
+    _scroll = (_scroll + 1) % (16 * 5 * 8);
+    frame += 0.5;
+  }
+
+  void drawTitleScreen() {
+    Graphics.clear(palette[12]);
+    Graphics.camera(Vec.of(_scroll, 0));
+    Graphics.tiles(titleTiles, Vec.of(-256, 0), 16 * 6, 16);
+    Graphics.print(
+      "✽ v" + version + " ✽ GAME: Farbs ✽ MUSIC: Gruber ♪ THANKS: Farbs Jr, Lan, DinoPuncher, Pyjamads ♥ GREETZ: Disc Room Team & Vlambeer ˇ", 
+      Vec.of(128, 120), 
+      palette[9]
+    );
+
+    Graphics.camera();
+
+    double alpha = Math.min(frame / 30, 1);
+    alpha = (1 - Math.sqrt(1 - alpha * alpha));
+    double scale = alpha * 3 + Math.sin(frame / 60 * -2 * Math.PI) * 1 * (1 - alpha);
+    if (frame > 30 && frame < 45) {
+      alpha = 1 - (frame - 30) / 15;
+      alpha *= alpha * alpha;
+      Graphics.camera(Vec.of(
+        Math.random() * alpha * 10, 
+        Math.random() * alpha * 10
+      ));
+    }
+    Graphics.map(palette[15], palette[0]);
+    Graphics.map(palette[4], palette[0]);
+    Graphics.map(palette[8], palette[0]);
+    Graphics.map(palette[2], palette[0]);
+    for (double i = 0; i <= scale; i += 0.1) {
+      drawLogo(i);
+    }
+    Graphics.map(palette[15], palette[15]);
+    Graphics.map(palette[4], palette[4]);
+    Graphics.map(palette[8], palette[8]);
+    Graphics.map(palette[2], palette[2]);
+    drawLogo(scale);
+
+    // prompt to start
+    if (frame > 120 && (frame % 30 < 15)) {
+      prettyPrint(
+        "PRESS 🅾️ OR ❎ TO START",
+        Vec.of(64 - 2 * 22, 80),
+        palette[7]
+      );
+    }
+  }
+
+  void drawLogo(double scale) {
+    int sw = 36, sh = 19;
+    Graphics.easeSprite(
+      sheet.slice(
+        Vec.ofInt(88, 96),
+        sw, sh
+      ),
+      Vec.of(
+        64 - sw * scale * 0.5,
+        64 - sh * scale * 0.5 - scale * 9
+      ),
+      sw * scale,
+      sh * scale
+    );
   }
 }

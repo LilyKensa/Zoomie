@@ -26,7 +26,7 @@ public class Inputs {
   }
   
   static public boolean keyOnce(KeyCode key) {
-    return timers.get(key) == 0;
+    return key(key) && timers.get(key) == 0;
   }
   
   @Setter

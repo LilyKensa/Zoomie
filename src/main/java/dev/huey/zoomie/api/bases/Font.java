@@ -11,8 +11,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-@Builder
+@Builder(buildMethodName = "internalBuild")
 public class Font {
+
+  public static class FontBuilder {
+    public Font build() {
+      Font font = this.internalBuild();
+      font.init();
+      return font;
+    }
+  }
   
   String source;
   
@@ -20,20 +28,24 @@ public class Font {
   int gridWidth, gridHeight, charWidth, charHeight, spaceWidth, spaceHeight, rows, columns;
   
   List<String> chars;
+
+  public final Map<String, Sprite> map = new HashMap<>();
   
-  public Map<String, Sprite> map = new HashMap<>();
-  
-  public Font() {
+  public void init() {
     Sprite sheet = Sprite.load(source);
-    
+
     int index = 0;
     for (int y = 0; y < columns; ++y) {
       for (int x = 0; x < rows; ++x) {
         Vec.Int v = Vec.ofInt(x * gridWidth, y * gridHeight);
-        
+
         map.put(chars.get(index++), sheet.slice(v, charWidth, charHeight));
       }
     }
+  }
+
+  public boolean hasSprite(String id) {
+    return map.containsKey(id);
   }
   
   public Sprite getSprite(String id) {

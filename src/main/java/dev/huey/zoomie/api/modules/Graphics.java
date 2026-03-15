@@ -335,6 +335,10 @@ public class Graphics {
   static public void tiles(TileMap tiles, Vec v, int width, int height, Set<Integer> flags) {
   
   }
+
+  static public void tiles(TileMap tiles, Vec v, int width, int height) {
+
+  }
   
   static Font defFont;
   
@@ -348,8 +352,7 @@ public class Graphics {
     if (font == null) return;
     
     int argb = toARGB(applyPalette(color));
-    
-    int[] source = font.getSprite(text.substring(0, 1)).buffer.array();
+
     int[] pixels = Entry.instance.currentScreenBuffer().getBuffer().array();
     
     final int originX = v.x;
@@ -365,7 +368,7 @@ public class Graphics {
       }
       
       Sprite spr = null;
-      for (int i = 0; i < 4; ++i) {
+      for (int i = 0, mi = Math.min(text.length() - index, 4); i < mi; ++i) {
         spr = font.getSprite(text.substring(index, index + i));
         if (spr != null) {
           index += i;
@@ -382,7 +385,7 @@ public class Graphics {
           Vec.Int target = Vec.ofInt(v.x + dx, v.y + dy);
           if (!isOnScreen(target)) continue;
           
-          if ((source[dy * font.getCharWidth() + dx] & 0x11000000) == 0) continue;
+          if ((spr.buffer.get(dy * font.getCharWidth() + dx) & 0x11000000) == 0) continue;
           
           pixels[target.y * font.getCharWidth() + target.x] = argb;
         }

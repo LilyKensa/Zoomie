@@ -97,12 +97,13 @@ public class Entry {
       count++;
       delta = now - last;
       last = now;
+
+      if (paused) {
+        skipped += delta;
+      }
       
       if (origin < 0) {
         origin = now;
-      }
-      else if (paused) {
-        skipped += delta;
       }
       else {
         update();
@@ -186,7 +187,9 @@ public class Entry {
   }
   
   void update() {
-    game.update();
+    if (!paused) {
+      game.update();
+    }
     
     Inputs.onPostUpdate();
   }
@@ -194,7 +197,9 @@ public class Entry {
   void render() {
     useScreenB = !useScreenB;
 
-    game.render();
+    if (!paused) {
+      game.render();
+    }
     
     currentScreenBuffer().updateBuffer(_ -> null);
     

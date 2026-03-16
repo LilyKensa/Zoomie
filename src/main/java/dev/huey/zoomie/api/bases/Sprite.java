@@ -1,34 +1,40 @@
 package dev.huey.zoomie.api.bases;
 
+import dev.huey.zoomie.api.modules.Utils;
 import javafx.scene.image.Image;
 import javafx.scene.image.PixelFormat;
+import lombok.Builder;
+import lombok.Getter;
 
 import java.nio.Buffer;
 import java.nio.IntBuffer;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
 public class Sprite {
   
   static public Sprite load(String path) {
-    return new Sprite(new Image(
-      Sprite.class.getResource("/assets/%s.png".formatted(path)).toExternalForm()
-    ));
+    return new Sprite(Utils.loadImage("/assets/sprites/%s.png".formatted(path)));
   }
 
-  public int width, height;
-  public IntBuffer buffer;
+  @Getter
+  public boolean sliced = false;
+  public Vec.Int sliceOrigin;
+
+  @Getter
+  int width, height;
+  Sprite parent;
+  IntBuffer buffer;
   
-  Set<Integer> flags;
-  
-  public Sprite(int width, int height, IntBuffer buffer) {
+  public Set<Integer> flags = new HashSet<>();
+
+  public Sprite(Sprite parent, Vec.Int sliceOrigin, int width, int height) {
+    sliced = true;
+    this.parent = parent;
+    this.sliceOrigin = sliceOrigin;
     this.width = width;
     this.height = height;
-    this.buffer = buffer;
-  }
-  
-  public Sprite(int width, int height) {
-    this(width, height, IntBuffer.allocate(width * height));
   }
 
   public Sprite(Image image) {
@@ -57,17 +63,18 @@ public class Sprite {
   }
   
   public Sprite slice(Vec.Int v, int width, int height) {
-    IntBuffer buffer = IntBuffer.allocate(width * height);
-    int[] pixels = buffer.array();
-    
-    for (int dy = 0; dy < height; ++dy) {
-      for (int dx = 0; dx < width; ++dx) {
-        Vec.Int source = Vec.ofInt(v.x + dx, v.y + dy);
-        
-        pixels[dy * width + dx] = this.buffer.get(source.y * this.width + source.x);
-      }
+    if (isSliced()) {
+      return parent.slice(Vec.ofInt(v.x + sliceOrigin.x, v.y + sliceOrigin.y), width, height);
     }
     
-    return new Sprite(width, height, buffer);
+    return new Sprite(this, v, width, height);
+  }
+
+  public int getPixel(Vec.Int v) {
+    if (isSliced()) {
+      return parent.getPixel(Vec.ofInt(v.x + sliceOrigin.x, v.y + sliceOrigin.y));
+    }
+
+    return buffer.get(v.y * width + v.x);
   }
 }

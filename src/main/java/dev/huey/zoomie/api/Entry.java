@@ -2,6 +2,7 @@ package dev.huey.zoomie.api;
 
 import dev.huey.zoomie.api.modules.Config;
 import dev.huey.zoomie.api.modules.Inputs;
+import dev.huey.zoomie.api.modules.Utils;
 import dev.huey.zoomie.game.Game;
 import javafx.animation.AnimationTimer;
 import javafx.scene.Scene;
@@ -10,9 +11,11 @@ import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.image.PixelBuffer;
 import javafx.scene.image.PixelFormat;
 import javafx.scene.image.WritableImage;
+import javafx.scene.input.KeyCombination;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
+import javafx.stage.Screen;
 import javafx.stage.Stage;
 
 import java.nio.IntBuffer;
@@ -20,9 +23,13 @@ import java.nio.IntBuffer;
 public class Entry {
   
   static public Entry instance;
+
+  String name;
   
-  public Entry() {
+  public Entry(String name) {
     instance = this;
+
+    this.name = name;
   }
   
   Stage stage;
@@ -61,16 +68,27 @@ public class Entry {
   
   void onKeyDown(KeyEvent ev) {
     Inputs.onKeyDown(ev);
+
+    switch (ev.getCode()) {
+      case ESCAPE -> {
+        paused = !paused;
+      }
+      case F11 -> {
+        stage.setFullScreen(!stage.isFullScreen());
+      }
+    }
   }
   
   void onKeyUp(KeyEvent ev) {
     Inputs.onKeyUp(ev);
   }
+
+  boolean paused;
   
-  long count, last, delta;
+  long count = 0, origin = -1, skipped = 0, last = 0, delta = 0;
   
   public long time() {
-    return last;
+    return last - origin - skipped;
   }
   
   class TickAnimationTimer extends AnimationTimer {
@@ -80,10 +98,18 @@ public class Entry {
       delta = now - last;
       last = now;
       
-      update();
+      if (origin < 0) {
+        origin = now;
+      }
+      else if (paused) {
+        skipped += delta;
+      }
+      else {
+        update();
 
-      if (!stage.isIconified()) {
-        render();
+        if (!stage.isIconified()) {
+          render();
+        }
       }
     }
   }
@@ -92,6 +118,16 @@ public class Entry {
   
   public void start(Stage stage) {
     this.stage = stage;
+
+    stage.getIcons().add(Utils.loadImage("/assets/icon.png"));
+    stage.setTitle(name + " - Zoomie");
+
+    Screen screen = Screen.getPrimary();
+    stage.setWidth(screen.getBounds().getWidth() * 0.5);
+    stage.setHeight(screen.getBounds().getHeight() * 0.6);
+
+    stage.setFullScreenExitHint("");
+    stage.setFullScreenExitKeyCombination(KeyCombination.NO_MATCH);
     
     game = new Game();
 

@@ -9,10 +9,7 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.paint.Color;
 import lombok.Builder;
 
-import java.util.ArrayList;
-import java.util.EnumMap;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -25,7 +22,7 @@ public class Game implements Lifecycle {
   }
 
   Font font = Font.builder()
-    .source("font")
+    .source("pico-8")
     .gridWidth(8).gridHeight(8)
     .charWidth(7).charHeight(5)
     .spaceWidth(4).spaceHeight(6)
@@ -49,12 +46,34 @@ public class Game implements Lifecycle {
     ))
     .build();
 
-  Sprite sheet = Sprite.load("spritesheet");
+  Sprite sheet = Sprite.load("sheet");
 
-  TileMap gameTiles = new TileMap();
-  TileMap titleTiles = new TileMap();
+  Map<Character, Sprite> tileSprites = Map.ofEntries(
+    Map.entry('=', sheet.slice(Vec.ofInt(8, 0), 8, 8).flag(1)),
+    Map.entry('I', sheet.slice(Vec.ofInt(16, 0), 8, 8).flag(1)),
+    Map.entry('#', sheet.slice(Vec.ofInt(24, 0), 8, 8).flag(1)),
+    Map.entry('-', sheet.slice(Vec.ofInt(32, 0), 8, 8).flag(0)),
+    Map.entry('|', sheet.slice(Vec.ofInt(40, 0), 8, 8).flag(0)),
+    Map.entry('U', sheet.slice(Vec.ofInt(0, 8), 8, 8).flag(1)),
+    Map.entry('V', sheet.slice(Vec.ofInt(8, 8), 8, 8).flag(1)),
+    Map.entry('Q', sheet.slice(Vec.ofInt(16, 8), 8, 8).flag(1)),
+    Map.entry('O', sheet.slice(Vec.ofInt(24, 8), 8, 8).flag(1)),
+    Map.entry('_', sheet.slice(Vec.ofInt(32, 8), 8, 8).flag(1))
+  );
+
+  TileMap gameTiles = TileMap.builder()
+    .source("game")
+    .gridWidth(8).gridHeight(8)
+    .map(tileSprites)
+    .build();
+  TileMap titleTiles = TileMap.builder()
+    .source("title")
+    .gridWidth(8).gridHeight(8)
+    .map(tileSprites)
+    .build();
 
   enum SpriteID {
+    LOGO,
     PL_RUN_0,
     PL_RUN_1,
     PL_RUN_2,
@@ -131,6 +150,34 @@ public class Game implements Lifecycle {
     SpriteID.DISC_2,
     SpriteID.DISC_3
   );
+
+  enum SoundID {
+    MUSIC_TITLE,
+    MUSIC_GAME,
+    RESTART,
+    JETPACK,
+    EXPLOSION,
+    BOX,
+    BOX_DISC,
+    DISC_BOUNCE,
+    DEATH,
+    WEAPON_FIRE,
+    WEAPON_FIRE_REVOLVER,
+    WEAPON_FIRE_SHOTGUN,
+    WEAPON_FIRE_DISC,
+    WEAPON_FIRE_KATANA,
+    WEAPON_FIRE_BAZOOKA,
+    WEAPON_FIRE_GRENADE,
+    WEAPON_FIRE_MINES,
+    WEAPON_FIRE_LASER,
+    DISC_DAMAGE,
+    DISC_DEATH,
+    DISC_DEATH_SEEKER,
+    DISC_DEATH_BIG,
+    TYPING
+  }
+
+  static EnumMap<SoundID, Sound> sounds = new EnumMap<>(SoundID.class);
 
   @Override
   public void start() {
@@ -239,6 +286,13 @@ public class Game implements Lifecycle {
       SpriteID.BULLET_GRENADE,
       sheet.slice(Vec.ofInt(32, 64), 8, 8)
     );
+
+    for (SoundID sound : SoundID.values()) {
+      sounds.put(
+        sound,
+        Sound.load(sound.name().toLowerCase().replaceAll("_", "-"))
+      );
+    }
 
     Graphics.font(font);
 
@@ -367,7 +421,7 @@ public class Game implements Lifecycle {
     boolean removed = false;
   }
 
-  static List<Disc> discs = new ArrayList<>();
+  static Set<Disc> discs = new HashSet<>();
 
   @Builder(buildMethodName = "internalBuild")
   static class Bullet implements Lifecycle {
@@ -477,8 +531,8 @@ public class Game implements Lifecycle {
     }
   }
 
-  List<Bullet> bullets = new ArrayList<>();
-  List<Bullet> bulletsAdding = new ArrayList<>();
+  Set<Bullet> bullets = new HashSet<>();
+  Set<Bullet> bulletsAdding = new HashSet<>();
 
   double boxCooldown = 1;
   Vec weaponGrab = Vec.zero();
@@ -542,7 +596,7 @@ public class Game implements Lifecycle {
     }
   }
 
-  static List<Particle> particles = new ArrayList<>();
+  static Set<Particle> particles = new HashSet<>();
 
   double shake = 0;
 
@@ -594,7 +648,7 @@ public class Game implements Lifecycle {
       double drawX = pl.pos.x;
       double drawY = pl.pos.y - 4 + spriteOffset.y;
       if (flipX) {
-        drawX -= 4 + 8 + spriteOffset.x + 8 * (sprite.width / 8d - 1);
+        drawX -= 4 + 8 + spriteOffset.x + 8 * (sprite.getWidth() / 8d - 1);
       }
       else {
         drawX += 4 + spriteOffset.x;
@@ -641,7 +695,7 @@ public class Game implements Lifecycle {
   double weaponCooldown = 0;
 
   void restart() {
-    Audios.emit(17);
+    Audios.emit(sounds.get(SoundID.RESTART));
 
     pl.pos = Vec.of(64, 64);
     pl.vel = Vec.zero();
@@ -702,7 +756,7 @@ public class Game implements Lifecycle {
   }
 
   void initGame() {
-    Audios.music(13);
+    Audios.music(sounds.get(SoundID.MUSIC_GAME));
     restart();
   }
 
@@ -763,7 +817,7 @@ public class Game implements Lifecycle {
       }
 
       if (buttons.upOnce()) {
-        Audios.emit(18);
+        Audios.emit(sounds.get(SoundID.JETPACK));
       }
 
       if (input.lenSq() > 0) {
@@ -885,9 +939,9 @@ public class Game implements Lifecycle {
       }
       currentWeapon = options.get((int) (Math.random() * options.size()));
       if (currentWeapon.id == WeaponID.DISC_GUN) {
-        Audios.emit(22);
+        Audios.emit(sounds.get(SoundID.BOX_DISC));
       } else {
-        Audios.emit(14);
+        Audios.emit(sounds.get(SoundID.BOX));
       }
       weaponGrab = pl.pos.clone();
       weaponCooldown = 1;
@@ -938,7 +992,7 @@ public class Game implements Lifecycle {
         }
         if (hit && d.radius > 10) {
           shake(4);
-          Audios.emit(15);
+          Audios.emit(sounds.get(SoundID.DISC_BOUNCE));
         }
         // check for player collision
         if (!dead) {
@@ -946,7 +1000,7 @@ public class Game implements Lifecycle {
             dead = true;
             deadCooldown = 60;
             restartCooldown = 60;
-            Audios.emit(16);
+            Audios.emit(sounds.get(SoundID.DEATH));
             d.blood = true;
             for (int i = 0; i < 5; ++i) {
               addSparks(d, palette[2], 10, 0, 1);
@@ -1008,7 +1062,7 @@ public class Game implements Lifecycle {
 
     // fire weapon
     if (currentWeapon.cooldown > 0) {
-      // cooldown, don"t fire
+      // cooldown, don't fire
       currentWeapon.cooldown--;
     }
     else {
@@ -1089,8 +1143,7 @@ public class Game implements Lifecycle {
     Graphics.tiles(
       gameTiles,
       Vec.of(-64, -64),
-      32, 32,
-      Set.of(1)
+      Set.of(0)
     );
 
     // box strings
@@ -1122,8 +1175,7 @@ public class Game implements Lifecycle {
     Graphics.tiles(
       gameTiles,
       Vec.of(-64, -64),
-      32, 32,
-      Set.of(2)
+      Set.of(1)
     );
 
     // player
@@ -1373,10 +1425,8 @@ public class Game implements Lifecycle {
   }
 
   Weapon getPistol() {
-    boolean plus = weaponPlusByChance();
-
     return Weapon.builder()
-      .plus(plus)
+      .plus(false)
       .id(WeaponID.PISTOL)
       .name("PISTOL")
       .sprite(spriteCache.get(SpriteID.WEAPON_PISTOL))
@@ -1393,7 +1443,7 @@ public class Game implements Lifecycle {
         bullets.add(makeBullet(pl.pos.add(b), v, 10));
         shake(2);
         knockback(1);
-        Audios.emit(19);
+        Audios.emit(sounds.get(SoundID.WEAPON_FIRE));
       })
       .build();
   }
@@ -1421,7 +1471,7 @@ public class Game implements Lifecycle {
         bullets.add(bullet);
         shake(5);
         knockback(1);
-        Audios.emit(20);
+        Audios.emit(sounds.get(SoundID.WEAPON_FIRE_REVOLVER));
       })
       .build();
   }
@@ -1450,7 +1500,7 @@ public class Game implements Lifecycle {
         }
         shake(2);
         knockback(1);
-        Audios.emit(19);
+        Audios.emit(sounds.get(SoundID.WEAPON_FIRE));
       })
       .build();
   }
@@ -1482,7 +1532,7 @@ public class Game implements Lifecycle {
         }
         shake(5);
         knockback(2);
-        Audios.emit(19);
+        Audios.emit(sounds.get(SoundID.WEAPON_FIRE));
       })
       .build();
   }
@@ -1516,7 +1566,7 @@ public class Game implements Lifecycle {
           bullets.add(makeBullet(pl.pos.add(b.mirror()), Vec.of(-v.y, -v.x), 10));
         }
         shake(2);
-        Audios.emit(19);
+        Audios.emit(sounds.get(SoundID.WEAPON_FIRE));
       })
       .build();
   }
@@ -1550,7 +1600,7 @@ public class Game implements Lifecycle {
         }
         shake(3);
         knockback(2);
-        Audios.emit(21);
+        Audios.emit(sounds.get(SoundID.WEAPON_FIRE_SHOTGUN));
       })
       .build();
   }
@@ -1587,7 +1637,7 @@ public class Game implements Lifecycle {
         );
         shake(2);
         knockback(5);
-        Audios.emit(23);
+        Audios.emit(sounds.get(SoundID.WEAPON_FIRE_DISC));
       })
       .build();
   }
@@ -1598,7 +1648,7 @@ public class Game implements Lifecycle {
     return Weapon.builder()
       .plus(plus)
       .id(WeaponID.KATANA)
-      .name("")
+      .name("KATANA")
       .sprite(spriteCache.get(SpriteID.WEAPON_KATANA))
       .spriteOffset(Vec.ofInt(-4, -1))
       .firePeriod(plus ? 3 : 12)
@@ -1636,7 +1686,7 @@ public class Game implements Lifecycle {
           }
         }
         shake(2);
-        Audios.emit(35);
+        Audios.emit(sounds.get(SoundID.WEAPON_FIRE_KATANA));
       })
       .build();
   }
@@ -1661,7 +1711,7 @@ public class Game implements Lifecycle {
         }
         bullets.add(makeShell(pl.pos.add(bx, 0), Vec.of(vx, 0), plus));
         shake(3);
-        Audios.emit(36);
+        Audios.emit(sounds.get(SoundID.WEAPON_FIRE_BAZOOKA));
       })
       .build();
   }
@@ -1685,7 +1735,7 @@ public class Game implements Lifecycle {
           vx *= -1;
         }
         bullets.add(makeGrenade(pl.pos.add(bx, 0), Vec.of(vx, -2), plus));
-        Audios.emit(37);
+        Audios.emit(sounds.get(SoundID.WEAPON_FIRE_GRENADE));
       })
       .build();
   }
@@ -1706,7 +1756,7 @@ public class Game implements Lifecycle {
       })
       .fire(_ -> {
         bullets.add(makeMine(pl.pos.add(0, 4), plus));
-        Audios.emit(38);
+        Audios.emit(sounds.get(SoundID.WEAPON_FIRE_MINES));
       })
       .build();
   }
@@ -1786,7 +1836,7 @@ public class Game implements Lifecycle {
         w.baseDraw();
       })
       .fire(w -> {
-        Audios.emit(40);
+        Audios.emit(sounds.get(SoundID.WEAPON_FIRE_LASER));
         laserCooldown = w.plus ? 6 : 30;
       })
       .build();
@@ -1840,6 +1890,7 @@ public class Game implements Lifecycle {
   Bullet makeGrenade(Vec pos, Vec vel, boolean plus) {
     Bullet grenade = makeBullet(pos, vel, 0);
 
+    grenade.sprite = spriteCache.get(SpriteID.BULLET_GRENADE);
     grenade.fuse = plus ? 180 : 60;
 
     grenade.draw = g -> {
@@ -1931,11 +1982,7 @@ public class Game implements Lifecycle {
   Bullet makeFlame(Vec pos, Vec vel, boolean plus) {
     Bullet flame = makeBullet(pos, vel, 0);
 
-    Runnable calculateRadius = () -> {
-      flame.radius = ((plus ? 60 : 30) - Math.abs(flame.fuse - 30)) * 0.375 + 2;
-    };
-    calculateRadius.run();
-
+    flame.radius = ((plus ? 60 : 30) - Math.abs(flame.fuse - 30)) * 0.375 + 2;
     flame.fuse = plus ? 90 : 60;
 
     flame.draw = f -> {
@@ -1962,7 +2009,7 @@ public class Game implements Lifecycle {
     };
 
     flame.tick = f -> {
-      calculateRadius.run();
+      f.radius = ((plus ? 60 : 30) - Math.abs(f.fuse - 30)) * 0.375 + 2;
 
       // move
       f.lastPos = f.pos.clone();
@@ -2064,7 +2111,7 @@ public class Game implements Lifecycle {
     explosion.a = 0;
 
     shake(10);
-    Audios.emit(12);
+    Audios.emit(sounds.get(SoundID.EXPLOSION));
 
     explosion.draw = e -> {
       Color col = palette[7];
@@ -2097,7 +2144,6 @@ public class Game implements Lifecycle {
 
   static void hitDisc(Disc hit, double damage) {
     hit.health -= damage;
-    hit.hitCooldown = 4;
     if (hit.health <= 0) {
       hit.removed = true;
       hit.cooldown = 9999;
@@ -2109,17 +2155,20 @@ public class Game implements Lifecycle {
       // death sound
       if (hit.radius < 10) {
         if (hit.seek) {
-          Audios.emit(11);
+          Audios.emit(sounds.get(SoundID.DISC_DEATH_SEEKER));
         } else {
-          Audios.emit(10);
+          Audios.emit(sounds.get(SoundID.DISC_DEATH));
         }
       } else {
-        Audios.emit(13);
+        Audios.emit(sounds.get(SoundID.DISC_DEATH_BIG));
       }
     } else {
       // damage sound
-      Audios.emit(9);
+      if (hit.hitCooldown <= 0) {
+        Audios.emit(sounds.get(SoundID.DISC_DAMAGE));
+      }
     }
+    hit.hitCooldown = 4;
   }
 
   static Disc firstRayHit(Vec start, Vec end, double r) {
@@ -2350,8 +2399,10 @@ public class Game implements Lifecycle {
   }
 
   void initSplashScreen() {
-    Audios.emit(8);
+    Audios.emit(sounds.get(SoundID.TYPING));
   }
+
+  boolean secondTypingSound = false;
 
   void updateSplashScreen() {
     if (buttons.oOnce() || buttons.xOnce() || time() >= 8) {
@@ -2360,8 +2411,9 @@ public class Game implements Lifecycle {
       return;
     }
 
-    if (time() >= 7) {
-      Audios.emit(-1);
+    if (time() >= 3 && !secondTypingSound) {
+      secondTypingSound = true;
+      Audios.emit(sounds.get(SoundID.TYPING));
     }
   }
 
@@ -2379,10 +2431,11 @@ public class Game implements Lifecycle {
     }
   }
 
-  int _scroll = 16;
+  int titleScroll = 16;
 
   void initTitleScreen() {
     Graphics.clear(palette[0]);
+    Audios.music(sounds.get(SoundID.MUSIC_TITLE));
   }
 
   void updateTitleScreen() {
@@ -2392,14 +2445,14 @@ public class Game implements Lifecycle {
       return;
     }
 
-    _scroll = (_scroll + 1) % (16 * 5 * 8);
+    titleScroll = (titleScroll + 1) % (16 * 5 * 8);
     frame += 0.5;
   }
 
   void drawTitleScreen() {
     Graphics.clear(palette[12]);
-    Graphics.camera(Vec.of(_scroll, 0));
-    Graphics.tiles(titleTiles, Vec.of(-256, 0), 16 * 6, 16);
+    Graphics.camera(Vec.of(titleScroll, 0));
+    Graphics.tiles(titleTiles, Vec.of(0, 0));
     Graphics.print(
       "✽  v" + version + " ✽  GAME: Farbs ✽  MUSIC: Gruber ♪  THANKS: Farbs Jr, Lan, DinoPuncher, Pyjamads ♥  GREETZ: Disc Room Team & Vlambeer ˇ",
       Vec.of(128, 120),
@@ -2444,11 +2497,17 @@ public class Game implements Lifecycle {
 
   void drawLogo(double scale) {
     int sw = 36, sh = 19;
+    if (!spriteCache.containsKey(SpriteID.LOGO)) {
+      spriteCache.put(
+        SpriteID.LOGO,
+        sheet.slice(
+          Vec.ofInt(88, 96),
+          sw, sh
+        )
+      );
+    }
     Graphics.easeSprite(
-      sheet.slice(
-        Vec.ofInt(88, 96),
-        sw, sh
-      ),
+      spriteCache.get(SpriteID.LOGO),
       Vec.of(
         64 - sw * scale * 0.5,
         64 - sh * scale * 0.5 - scale * 9

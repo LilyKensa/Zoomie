@@ -32,7 +32,9 @@ public class Font {
   public final Map<String, Sprite> map = new HashMap<>();
   
   public void init() {
-    Sprite sheet = Sprite.load(source);
+    Sprite sheet = new Sprite(new Image(
+      Sprite.class.getResource("/assets/fonts/%s.png".formatted(source)).toExternalForm()
+    ));
 
     int index = 0;
     for (int y = 0; y < columns; ++y) {

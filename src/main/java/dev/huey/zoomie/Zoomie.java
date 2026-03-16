@@ -1,6 +1,7 @@
 package dev.huey.zoomie;
 
 import dev.huey.zoomie.api.Entry;
+import dev.huey.zoomie.api.modules.Utils;
 import javafx.application.Application;
 import javafx.scene.image.Image;
 import javafx.stage.Screen;
@@ -12,20 +13,10 @@ public class Zoomie extends Application {
     launch();
   }
   
-  Entry entry = new Entry();
+  Entry entry = new Entry("Super Disc Box");
   
   @Override
   public void start(Stage stage) {
-    stage.getIcons().add(new Image("icon.png"));
-    stage.setTitle("Super Disc Box - Zoomie");
-    
-    Screen screen = Screen.getPrimary();
-    stage.setWidth(screen.getBounds().getWidth() * 0.5);
-    stage.setHeight(screen.getBounds().getHeight() * 0.6);
-    
-    stage.setFullScreenExitHint("");
-//    stage.setFullScreen(true);
-    
     entry.start(stage);
   }
 }

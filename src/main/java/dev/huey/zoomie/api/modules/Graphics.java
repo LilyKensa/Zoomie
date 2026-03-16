@@ -13,10 +13,10 @@ import java.util.*;
 
 public class Graphics {
   
-  static Vec cam = Vec.zero();
+  static Vec.Int cam = Vec.ofInt(0, 0);
   
   static public void camera(Vec v) {
-    cam = v;
+    cam = v.toInt();
   }
   
   static public void camera() {
@@ -24,7 +24,7 @@ public class Graphics {
   }
   
   static public Vec.Int applyCam(Vec vec) {
-    return vec.minus(cam).toInt();
+    return vec.minus(cam.toDouble()).toInt();
   }
   
   static public boolean isOnScreen(Vec.Int v) {
@@ -290,18 +290,17 @@ public class Graphics {
     if (spr == null) return;
 
     int[] pixels = Entry.instance.currentScreenBuffer().getBuffer().array();
-    int[] source = spr.buffer.array();
     
-    for (int dy = 0; dy < spr.height; ++dy) {
-      int sourceY = flip ? (spr.height - 1 - dy) : dy;
+    for (int dy = 0; dy < spr.getHeight(); ++dy) {
+      int sourceY = flip ? (spr.getHeight() - 1 - dy) : dy;
       
-      for (int dx = 0; dx < spr.width; ++dx) {
-        int sourceX = mirror ? (spr.width - 1 - dx) : dx;
+      for (int dx = 0; dx < spr.getWidth(); ++dx) {
+        int sourceX = mirror ? (spr.getWidth() - 1 - dx) : dx;
         
         Vec.Int target = Vec.ofInt(v.x + dx, v.y + dy);
         if (!isOnScreen(target)) continue;
         
-        int argb = source[sourceY * spr.width + sourceX];
+        int argb = spr.getPixel(Vec.ofInt(sourceX, sourceY));
         if ((argb & 0x11000000) == 0) continue;
         
         pixels[target.y * Config.size.width() + target.x] = applyPalette(argb);
@@ -323,19 +322,17 @@ public class Graphics {
 
   static public void absEaseSprite(Sprite spr, Vec.Int v, int width, int height, boolean mirror, boolean flip) {
     int[] pixels = Entry.instance.currentScreenBuffer().getBuffer().array();
-    int[] source = spr.buffer.array();
     int screenWidth = Config.size.width();
     int screenHeight = Config.size.height();
 
-    double scaleX = (double) spr.width / width;
-    double scaleY = (double) spr.height / height;
+    double scaleX = (double) spr.getWidth() / width;
+    double scaleY = (double) spr.getHeight() / height;
 
     for (int dy = 0; dy < height; ++dy) {
       int targetY = v.y + dy;
       if (targetY < 0 || targetY >= screenHeight) continue;
 
       int sourceY = flip ? (int) ((height - 1 - dy) * scaleY) : (int) (dy * scaleY);
-      int sourceRowOffset = sourceY * spr.width;
       int targetRowOffset = targetY * screenWidth;
 
       for (int dx = 0; dx < width; ++dx) {
@@ -344,9 +341,7 @@ public class Graphics {
 
         int sourceX = mirror ? (int) ((width - 1 - dx) * scaleX) : (int) (dx * scaleX);
 
-        int argb = source[sourceRowOffset + sourceX];
-
-        // Simple alpha check (assuming 0x11 is your threshold for transparency)
+        int argb = spr.getPixel(Vec.ofInt(sourceX, sourceY));
         if ((argb & 0xFF000000) == 0) continue;
 
         pixels[targetRowOffset + targetX] = applyPalette(argb);
@@ -365,13 +360,34 @@ public class Graphics {
   static public void easeSprite(Sprite spr, Vec v, double width, double height) {
     easeSprite(spr, v, width, height,false);
   }
+
+  static public void absTiles(TileMap tiles, Vec.Int v, Set<Integer> flags) {
+    int originX = v.x;
+    for (String line : tiles.tiles) {
+      for (char c : line.toCharArray()) {
+        Sprite spr = tiles.map.get(c);
+
+        if (spr != null && (
+          flags.isEmpty() ||
+          spr.flags.stream().anyMatch(flags::contains)
+        )) {
+          absSprite(spr, v, false, false);
+        }
+
+        v.x += tiles.getGridWidth();
+      }
+
+      v.x = originX;
+      v.y += tiles.getGridHeight();
+    }
+  }
   
-  static public void tiles(TileMap tiles, Vec v, int width, int height, Set<Integer> flags) {
-  
+  static public void tiles(TileMap tiles, Vec v, Set<Integer> flags) {
+    absTiles(tiles, applyCam(v), flags);
   }
 
-  static public void tiles(TileMap tiles, Vec v, int width, int height) {
-
+  static public void tiles(TileMap tiles, Vec v) {
+    tiles(tiles, v, Set.of());
   }
   
   static Font defFont;
@@ -414,12 +430,12 @@ public class Graphics {
         continue;
       }
       
-      for (int dy = 0; dy < spr.height; ++dy) {
-        for (int dx = 0; dx < spr.width; ++dx) {
+      for (int dy = 0; dy < spr.getHeight(); ++dy) {
+        for (int dx = 0; dx < spr.getWidth(); ++dx) {
           Vec.Int target = Vec.ofInt(v.x + dx, v.y + dy);
           if (!isOnScreen(target)) continue;
           
-          if ((spr.buffer.get(dy * spr.width + dx) & 0x11000000) == 0) continue;
+          if ((spr.getPixel(Vec.ofInt(dx, dy)) & 0x11000000) == 0) continue;
           
           pixels[target.y * Config.size.width() + target.x] = argb;
         }
